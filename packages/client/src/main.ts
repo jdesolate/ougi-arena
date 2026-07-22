@@ -1,26 +1,16 @@
 import Phaser from "phaser";
-
-class BootScene extends Phaser.Scene {
-  constructor() {
-    super("boot");
-  }
-
-  create(): void {
-    this.add
-      .text(this.scale.width / 2, this.scale.height / 2, "Ougi Arena", {
-        fontFamily: "sans-serif",
-        fontSize: "32px",
-        color: "#ffffff",
-      })
-      .setOrigin(0.5);
-  }
-}
+import { DOJO_ARENA } from "@ougi-arena/shared";
+import { GameScene } from "./scenes/GameScene.js";
 
 new Phaser.Game({
   type: Phaser.AUTO,
   parent: "app",
-  width: 960,
-  height: 540,
+  width: DOJO_ARENA.width,
+  height: DOJO_ARENA.height,
   backgroundColor: "#1a1a2e",
-  scene: [BootScene],
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+  scene: [GameScene],
 });

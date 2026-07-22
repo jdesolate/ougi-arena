@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "client-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@ougi-arena/client", "dev"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

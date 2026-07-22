@@ -22,3 +22,14 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - `pnpm typecheck`, `pnpm lint`, `pnpm test` pass across all packages.
 - **Next:** S3 — Phaser renderer + skin layer + pointer drag input (grab radius, aim line, launch); playable solo in one tab. Model: Sonnet.
 - **Open issues:** knockback/damping numbers are first-pass guesses — expect a feel pass once S3 makes them playable.
+
+## S3 — Phaser renderer + skin layer + drag input (2026-07-23)
+
+- `GameScene` runs the shared sim locally (one controllable ninja, `DOJO_ARENA`), stepping it on a fixed 1/30s accumulator decoupled from Phaser's variable frame delta (capped at 5 steps/frame to avoid a stall spiral).
+- Renders walls, the destructible obstacle grid (color fades toward its "cracked" tone as `hp` drops, vanishes on `alive:false`), and the ninja via a small data-driven `skins.ts` table (`characterId` → color) so a real asset pack later is a data swap, not a scene rewrite.
+- Pointer input: press-and-hold within a grab radius (2.5x ninja radius) starts a slingshot drag; move draws a pull line plus a power-scaled launch preview; release computes direction (opposite the drag) and power (drag distance / 160, clamped 0..1) into a `LaunchCommand` consumed by the next fixed step.
+- `main.ts` now boots `GameScene` sized to the arena (1280x720) with `Scale.FIT`. Added `.claude/launch.json` for browser-preview verification; dropped the hardcoded port in `vite.config.ts` so it can fall back cleanly when 5173 is taken.
+- Verified in-browser: ninja renders at spawn, drag-launch fires it the correct opposite direction, it smashes an obstacle out of the grid and settles after wall bounces — matches S2's collision/damping behavior. No console errors.
+- `pnpm typecheck` and `pnpm lint` pass across all packages.
+- **Next:** S4 — Colyseus rooms + lobby: create/join by link code, public/private flag, nickname flow, host start + migration, spectate-on-mid-join, reconnection via `allowReconnection`. Model: Sonnet.
+- **Open issues:** none.

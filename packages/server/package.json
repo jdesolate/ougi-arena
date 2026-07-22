@@ -1,0 +1,24 @@
+{
+  "name": "@ougi-arena/server",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "build": "tsc -p tsconfig.json",
+    "test": "echo \"no tests yet\""
+  },
+  "dependencies": {
+    "@ougi-arena/shared": "workspace:*",
+    "@colyseus/core": "^0.16.0",
+    "@colyseus/schema": "^3.0.0",
+    "@colyseus/ws-transport": "^0.16.0",
+    "colyseus": "^0.16.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "@types/node": "^20.14.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "ougi-arena",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter ./packages/server --filter ./packages/client run dev",
+    "build": "pnpm --recursive run build",
+    "test": "pnpm --recursive run test",
+    "typecheck": "pnpm --recursive run typecheck",
+    "lint": "pnpm --recursive run lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "eslint": "^9.9.0",
+    "@typescript-eslint/eslint-plugin": "^8.3.0",
+    "@typescript-eslint/parser": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

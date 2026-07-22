@@ -1,0 +1,21 @@
+{
+  "name": "@ougi-arena/client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "build": "tsc -p tsconfig.json && vite build",
+    "test": "echo \"no tests yet\""
+  },
+  "dependencies": {
+    "@ougi-arena/shared": "workspace:*",
+    "phaser": "^3.85.0",
+    "colyseus.js": "^0.16.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

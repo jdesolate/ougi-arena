@@ -24,6 +24,12 @@ const GRAB_RADIUS = NINJA_RADIUS * 2.5;
 
 const PLAYER_ID = "player";
 
+/** Nindou-style movement: dashes only go up/down/left/right, never diagonal. */
+function snapToCardinal(x: number, y: number): { x: number; y: number } {
+  if (x === 0 && y === 0) return { x: 0, y: 0 };
+  return Math.abs(x) >= Math.abs(y) ? { x: Math.sign(x), y: 0 } : { x: 0, y: Math.sign(y) };
+}
+
 export class GameScene extends Phaser.Scene {
   private sim!: SimState;
   private accumulatorMs = 0;
@@ -101,13 +107,14 @@ export class GameScene extends Phaser.Scene {
     const dragDist = lengthOf(dragX, dragY);
     if (dragDist === 0) return;
 
-    // Slingshot: pull back, release launches the opposite way.
+    // Slingshot: pull back, release launches the opposite way, snapped to an axis.
     const power = clamp(dragDist / MAX_DRAG_DISTANCE, 0, 1);
+    const dir = snapToCardinal(-dragX, -dragY);
     this.pendingCommand = {
       type: "launch",
       ninjaId: PLAYER_ID,
-      dirX: -dragX,
-      dirY: -dragY,
+      dirX: dir.x,
+      dirY: dir.y,
       power,
     };
   }
@@ -124,11 +131,11 @@ export class GameScene extends Phaser.Scene {
     this.aimGfx.lineStyle(3, 0xffffff, 0.6);
     this.aimGfx.lineBetween(player.x, player.y, this.pointerX, this.pointerY);
 
-    // Launch preview, drawn the opposite way and scaled with power.
+    // Launch preview: the actual axis-snapped launch direction, scaled with power.
     const previewLen = 40 + power * 120;
-    const dist = dragDist || 1;
-    const launchX = player.x + (-dragX / dist) * previewLen;
-    const launchY = player.y + (-dragY / dist) * previewLen;
+    const dir = snapToCardinal(-dragX, -dragY);
+    const launchX = player.x + dir.x * previewLen;
+    const launchY = player.y + dir.y * previewLen;
     this.aimGfx.lineStyle(4, 0xffd166, 0.9);
     this.aimGfx.lineBetween(player.x, player.y, launchX, launchY);
   }

@@ -42,7 +42,7 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 - FR-7: A disconnected player (network blip, tab/phone sleep) can rejoin the same live match within a grace window (~30s) with their state intact.
 
 ### 4.2 Core gameplay
-- FR-8: Slingshot movement — press on own ninja (generous grab radius), drag back, release to launch. Movement consumes TP, which regenerates over time.
+- FR-8: Slingshot movement — press on own ninja (generous grab radius), drag back, release to launch. Launch direction is locked to the 4 cardinal directions (up/down/left/right), Nindou-style — no diagonal dashes. Movement consumes TP, which regenerates over time.
 - FR-9: Ballistic dashes with damping; ninjas collide physically with each other (knockback), walls, and obstacles.
 - FR-10: Destructible obstacle grid; obstacles have HP, shatter when dashed through, do not respawn within a match.
 - FR-11: Damage on ninja-vs-ninja hits; HP depletion causes KO; ~3s respawn with ~2s invulnerability.

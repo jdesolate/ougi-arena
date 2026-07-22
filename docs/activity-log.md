@@ -31,5 +31,6 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - `main.ts` now boots `GameScene` sized to the arena (1280x720) with `Scale.FIT`. Added `.claude/launch.json` for browser-preview verification; dropped the hardcoded port in `vite.config.ts` so it can fall back cleanly when 5173 is taken.
 - Verified in-browser: ninja renders at spawn, drag-launch fires it the correct opposite direction, it smashes an obstacle out of the grid and settles after wall bounces — matches S2's collision/damping behavior. No console errors.
 - `pnpm typecheck` and `pnpm lint` pass across all packages.
+- **Correction after review:** Nindou's original dashes are axis-locked (no diagonals). Added `snapToCardinal` in `GameScene` so the launch direction snaps to the nearest of up/down/left/right; updated FR-8 in `docs/prd.md` and the core-gameplay bullet in `docs/mvp-plan.md` to record the decision. Re-verified in-browser: a straight-down drag launches purely on the y-axis (bounces off the top wall and returns along the same x-column), a diagonal-ish drag resolves to a single dominant axis — no diagonal drift in either case.
 - **Next:** S4 — Colyseus rooms + lobby: create/join by link code, public/private flag, nickname flow, host start + migration, spectate-on-mid-join, reconnection via `allowReconnection`. Model: Sonnet.
 - **Open issues:** none.

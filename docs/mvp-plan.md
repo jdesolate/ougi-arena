@@ -12,7 +12,7 @@ Purpose: **a game to genuinely enjoy and share** — fun, seamless, always playa
 - Must run on free tiers ($0/month), with a documented cheap upgrade path.
 
 ### Core gameplay (unchanged from original grilling)
-- Real-time combat with TP-gated discrete slingshot dashes (Nindou-style: press on your ninja, pull back, release to launch). Generous grab radius (~2–3x sprite size).
+- Real-time combat with TP-gated discrete slingshot dashes (Nindou-style: press on your ninja, pull back, release to launch). Generous grab radius (~2–3x sprite size). Launch direction snaps to the 4 cardinal directions only — no diagonal dashes, matching Nindou's original movement.
 - 2–4 player free-for-all rooms, joinable by shared link or Quick Play.
 - Match: 2-minute timed kill-count. HP-based KOs, ~3s respawn with ~2s invulnerability, sudden-death next-KO tiebreak.
 - 3–4 ninjas, identical base stats; each character is defined by one Ougi (ultimate). SP charges by dealing damage only; Ougi fires at max SP.

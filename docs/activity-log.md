@@ -36,3 +36,16 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - **Deferred, documented, not implemented:** passing through an enemy ninja mid-dash should shatter (instant-KO) them instead of bouncing, with random-point respawn at reduced HP, blink invulnerability, and a smoke effect. Needs the HP/KO system, which doesn't exist yet — recorded in `prd.md` (FR-9/FR-11) and `mvp-plan.md`, to be built properly in S6 (HP/KO/respawn/invulnerability) and S10 (smoke/blink juice) rather than bolted on early. Ninja-vs-ninja collision still uses the old elastic knockback in the meantime.
 - **Next:** S4 — Colyseus rooms + lobby: create/join by link code, public/private flag, nickname flow, host start + migration, spectate-on-mid-join, reconnection via `allowReconnection`. Model: Sonnet.
 - **Open issues:** none.
+
+## S4 — Colyseus rooms + lobby (2026-07-23)
+
+- `ArenaRoom` rewritten as a lobby: `LobbyState` (`phase: "lobby" | "playing"`) with a `MapSchema<PlayerState>` (`nickname`, `characterId`, `isHost`, `spectating`). Join code is Colyseus's own `roomId` — no custom code generator needed. `setPrivate` from a create option covers the public/private toggle.
+- Active combatants capped at 4 (`MAX_ACTIVE_PLAYERS`); `maxClients` raised to 8 so the room keeps accepting joiners past that as spectators instead of rejecting them. Anyone joining while `phase === "playing"`, or past the active-player cap, is flagged `spectating`.
+- Host is the first joiner; `"start"` message is host-only and flips `phase` to `"playing"`. On host disconnect, `migrateHost()` hands it to the oldest remaining joiner via a tracked `joinOrder` array (not `this.clients`, which colyseus doesn't guarantee stays in join order).
+- `onLeave`: unintentional drops (`consented === false`) get a 20s `allowReconnection` grace window before the player is removed; explicit leaves remove immediately.
+- Client: new `lobby.ts` + a DOM overlay in `index.html` (nickname, private toggle, create/join-by-code, live player list, host-only start button, spectate note) ahead of the existing local-sim `GameScene`. `network/colyseus.ts` holds the `Client` instance (hardcoded `ws://localhost:2567` — env-based config is S11). `/r/<code>` in the URL prefills the join code; `history.replaceState` writes it back after create/join. Reconnection token is persisted to `localStorage` and retried on load before showing the lobby form.
+- `GameScene` itself is untouched — still runs its own local sim standalone. Wiring the room's authoritative state into it is S5.
+- Verified in-browser with 3 tabs against a real server: create → room code shown, host tagged; join-by-code from the URL path picks up nickname + live player list on both sides; host-only "Start match" button; starting flips both tabs from lobby to the Phaser canvas; a third tab joining after start is correctly flagged spectating with the note shown. No console errors in any tab.
+- `pnpm typecheck` and `pnpm lint` pass across all packages.
+- **Next:** S5 — Authoritative room: shared sim at 30Hz, schema state sync, client interpolation (~100ms) + optimistic local launch; two tabs can fight. Model: Opus.
+- **Open issues:** none.

@@ -4,8 +4,68 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ougi Arena</title>
+    <style>
+      body {
+        margin: 0;
+        background: #1a1a2e;
+        color: #eee;
+        font-family: system-ui, sans-serif;
+      }
+      #lobby {
+        max-width: 420px;
+        margin: 48px auto;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      #lobby input[type="text"],
+      #lobby input:not([type]) {
+        padding: 8px;
+        font-size: 1rem;
+      }
+      .join-row {
+        display: flex;
+        gap: 8px;
+      }
+      .join-row input {
+        flex: 1;
+      }
+      #lobby-error {
+        color: #ff6b6b;
+        min-height: 1.2em;
+      }
+      #player-list {
+        list-style: none;
+        padding: 0;
+      }
+      #player-list li {
+        padding: 4px 0;
+        border-bottom: 1px solid #333;
+      }
+    </style>
   </head>
   <body>
+    <div id="lobby">
+      <h1>Ougi Arena</h1>
+      <div id="lobby-form">
+        <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
+        <label><input id="private-toggle" type="checkbox" /> Private room</label>
+        <button id="create-btn">Create room</button>
+        <div class="join-row">
+          <input id="join-code-input" type="text" placeholder="Room code" />
+          <button id="join-btn">Join</button>
+        </div>
+        <p id="lobby-error"></p>
+      </div>
+      <div id="lobby-room" hidden>
+        <p>Room code: <span id="room-code"></span> <button id="copy-link-btn">Copy link</button></p>
+        <ul id="player-list"></ul>
+        <p id="spectate-note" hidden>You're spectating this match — you'll join the next one.</p>
+        <button id="start-btn" hidden>Start match</button>
+        <p id="waiting-note">Waiting for the host to start…</p>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

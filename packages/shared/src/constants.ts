@@ -13,14 +13,15 @@ export const LINEAR_DAMPING_PER_TICK = 0.93;
 /** Below this speed a ninja is snapped to rest, so dashes end at the same tick everywhere. */
 export const REST_SPEED = 6;
 
-/** Launch speed range mapped from drag power 0..1. */
+/** Launch speed range mapped from drag power 0..1; travel distance is separately capped by MAX_DASH_DISTANCE. */
 export const LAUNCH_SPEED_MIN = 220;
 export const LAUNCH_SPEED_MAX = 900;
 
-/** Bounciness of ninja-vs-ninja, ninja-vs-wall and ninja-vs-obstacle collisions. */
+/** Max reach of a full-power (power=1) dash, in world units. Stands in for a TP-gated range until S6 wires real TP. */
+export const MAX_DASH_DISTANCE = 400;
+
+/** Bounciness of ninja-vs-ninja collisions. Walls and obstacles hard-stop a dash instead of bouncing it. */
 export const NINJA_RESTITUTION = 0.55;
-export const WALL_RESTITUTION = 0.6;
-export const OBSTACLE_RESTITUTION = 0.5;
 
 /** Knockback added along the contact normal on top of the elastic exchange, to make hits read as hits. */
 export const KNOCKBACK_BONUS = 90;

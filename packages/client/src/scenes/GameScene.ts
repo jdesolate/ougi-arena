@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import {
   DOJO_ARENA,
+  MAX_DASH_DISTANCE,
   NINJA_RADIUS,
   OBSTACLE_HP,
   SIM_DT,
@@ -131,8 +132,8 @@ export class GameScene extends Phaser.Scene {
     this.aimGfx.lineStyle(3, 0xffffff, 0.6);
     this.aimGfx.lineBetween(player.x, player.y, this.pointerX, this.pointerY);
 
-    // Launch preview: the actual axis-snapped launch direction, scaled with power.
-    const previewLen = 40 + power * 120;
+    // Launch preview: exactly where the dash will land, so the arrow shows the real destination, not just a direction.
+    const previewLen = power * MAX_DASH_DISTANCE;
     const dir = snapToCardinal(-dragX, -dragY);
     const launchX = player.x + dir.x * previewLen;
     const launchY = player.y + dir.y * previewLen;

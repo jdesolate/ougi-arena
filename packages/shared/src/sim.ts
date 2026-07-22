@@ -1,17 +1,16 @@
-import { circleAabbContact, closingSpeed, resolveNinjaPair, resolveStaticContact } from "./collision.js";
+import { circleAabbContact, closingSpeed, resolveNinjaPair, stopAtContact } from "./collision.js";
 import {
   LAUNCH_SPEED_MAX,
   LAUNCH_SPEED_MIN,
   LINEAR_DAMPING_PER_TICK,
+  MAX_DASH_DISTANCE,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
   NINJA_RESTITUTION,
   OBSTACLE_DAMAGE_PER_IMPACT_SPEED,
   OBSTACLE_HP,
-  OBSTACLE_RESTITUTION,
   REST_SPEED,
   SIM_DT,
-  WALL_RESTITUTION,
 } from "./constants.js";
 import { clamp, lengthOf } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
@@ -32,7 +31,7 @@ export function spawnPointFor(map: ArenaMap, index: number): Vec2 {
 }
 
 export function createNinja(id: string, spawn: Vec2): NinjaState {
-  return { id, x: spawn.x, y: spawn.y, vx: 0, vy: 0, radius: NINJA_RADIUS, active: true };
+  return { id, x: spawn.x, y: spawn.y, vx: 0, vy: 0, radius: NINJA_RADIUS, dashBudget: 0, active: true };
 }
 
 function createObstacles(map: ArenaMap): ObstacleState[] {
@@ -70,9 +69,11 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
   const speed = LAUNCH_SPEED_MIN + (LAUNCH_SPEED_MAX - LAUNCH_SPEED_MIN) * power;
   ninja.vx = (command.dirX / len) * speed;
   ninja.vy = (command.dirY / len) * speed;
+  ninja.dashBudget = power * MAX_DASH_DISTANCE;
   return speed;
 }
 
+/** Advances a ninja by one tick, clipping movement to what's left of its dash so it never overshoots the drag's reach. */
 function integrate(ninja: NinjaState): void {
   ninja.vx *= LINEAR_DAMPING_PER_TICK;
   ninja.vy *= LINEAR_DAMPING_PER_TICK;
@@ -82,8 +83,29 @@ function integrate(ninja: NinjaState): void {
     ninja.vy = 0;
   }
 
-  ninja.x += ninja.vx * SIM_DT;
-  ninja.y += ninja.vy * SIM_DT;
+  if (ninja.dashBudget <= 0) {
+    ninja.vx = 0;
+    ninja.vy = 0;
+    return;
+  }
+
+  let dx = ninja.vx * SIM_DT;
+  let dy = ninja.vy * SIM_DT;
+  const step = lengthOf(dx, dy);
+
+  if (step >= ninja.dashBudget) {
+    const scale = ninja.dashBudget / step;
+    dx *= scale;
+    dy *= scale;
+    ninja.dashBudget = 0;
+    ninja.vx = 0;
+    ninja.vy = 0;
+  } else {
+    ninja.dashBudget -= step;
+  }
+
+  ninja.x += dx;
+  ninja.y += dy;
 }
 
 function collideWithObstacles(state: SimState, ninja: NinjaState, events: SimEvent[]): void {
@@ -99,16 +121,16 @@ function collideWithObstacles(state: SimState, ninja: NinjaState, events: SimEve
       obstacle.hp -= damage;
 
       if (obstacle.hp <= 0) {
-        // Shattered obstacles stop existing this tick, so the dash carries through instead of bouncing.
         obstacle.hp = 0;
         obstacle.alive = false;
         events.push({ type: "obstacleDestroyed", ninjaId: ninja.id, obstacleId: obstacle.id });
-        continue;
+      } else {
+        events.push({ type: "obstacleHit", ninjaId: ninja.id, obstacleId: obstacle.id, impact, damage });
       }
-      events.push({ type: "obstacleHit", ninjaId: ninja.id, obstacleId: obstacle.id, impact, damage });
     }
 
-    resolveStaticContact(ninja, contact, OBSTACLE_RESTITUTION);
+    // Obstacles stop a dash on contact whether or not the hit breaks them — no bounce-through.
+    stopAtContact(ninja, contact);
   }
 }
 
@@ -117,7 +139,7 @@ function collideWithWalls(state: SimState, ninja: NinjaState, events: SimEvent[]
     const contact = circleAabbContact(ninja, wall);
     if (!contact) continue;
 
-    const impact = resolveStaticContact(ninja, contact, WALL_RESTITUTION);
+    const impact = stopAtContact(ninja, contact);
     if (impact >= MIN_IMPACT_SPEED) {
       events.push({ type: "wallHit", ninjaId: ninja.id, impact });
     }

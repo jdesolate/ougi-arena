@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   LAUNCH_SPEED_MAX,
   LAUNCH_SPEED_MIN,
+  MAX_DASH_DISTANCE,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
   OBSTACLE_HP,
@@ -53,6 +54,7 @@ describe("applyLaunch", () => {
     );
     expect(lengthOf(ninja.vx, ninja.vy)).toBeCloseTo(LAUNCH_SPEED_MAX);
     expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX * 0.6);
+    expect(ninja.dashBudget).toBeCloseTo(MAX_DASH_DISTANCE);
   });
 
   it("clamps power outside 0..1 and ignores a zero-length drag", () => {
@@ -101,7 +103,7 @@ describe("step", () => {
     expect(speedOf(state, "b")).toBe(0);
   });
 
-  it("bounces a ninja off a wall and reports the impact", () => {
+  it("stops a ninja at a wall instead of bouncing, and reports the impact", () => {
     const state = createSimState(["a"]);
     const ninja = state.ninjas[0]!;
     ninja.x = 100;
@@ -114,11 +116,12 @@ describe("step", () => {
     }
 
     expect(wallHits).toBeGreaterThan(0);
-    expect(ninja.x).toBeGreaterThan(40);
-    expect(ninja.vx).toBeGreaterThanOrEqual(0);
+    expect(ninja.x).toBeGreaterThanOrEqual(40 + NINJA_RADIUS);
+    expect(ninja.vx).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
   });
 
-  it("damages an obstacle and bounces off it when the hit does not break it", () => {
+  it("damages an obstacle and stops the dash when the hit does not break it", () => {
     const state = createSimState(["a"]);
     const obstacle = state.obstacles[0]!;
     obstacle.hp = 10_000;
@@ -127,6 +130,7 @@ describe("step", () => {
     ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 5;
     ninja.y = obstacle.y;
     ninja.vx = LAUNCH_SPEED_MAX;
+    ninja.dashBudget = MAX_DASH_DISTANCE;
 
     const events = step(state);
     const hit = events.find((e) => e.type === "obstacleHit");
@@ -134,23 +138,26 @@ describe("step", () => {
     expect(hit).toBeDefined();
     expect(obstacle.alive).toBe(true);
     expect(obstacle.hp).toBeLessThan(10_000);
-    expect(ninja.vx).toBeLessThan(0);
+    expect(ninja.vx).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
   });
 
-  it("shatters an obstacle on a hard hit and lets the dash carry through", () => {
+  it("shatters an obstacle on a hard hit but still stops the dash there", () => {
     const state = createSimState(["a"]);
     const obstacle = state.obstacles[0]!;
     const ninja = state.ninjas[0]!;
     ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 5;
     ninja.y = obstacle.y;
     ninja.vx = LAUNCH_SPEED_MAX;
+    ninja.dashBudget = MAX_DASH_DISTANCE;
 
     const events = step(state);
 
     expect(events).toContainEqual({ type: "obstacleDestroyed", ninjaId: "a", obstacleId: obstacle.id });
     expect(obstacle.alive).toBe(false);
     expect(obstacle.hp).toBe(0);
-    expect(ninja.vx).toBeGreaterThan(0);
+    expect(ninja.vx).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
   });
 
   it("leaves a destroyed obstacle out of the sim on later ticks", () => {
@@ -162,6 +169,7 @@ describe("step", () => {
     ninja.x = obstacle.x;
     ninja.y = obstacle.y;
     ninja.vx = 300;
+    ninja.dashBudget = MAX_DASH_DISTANCE;
 
     const events = step(state);
     expect(events).toHaveLength(0);
@@ -175,6 +183,7 @@ describe("step", () => {
     ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 1;
     ninja.y = obstacle.y;
     ninja.vx = MIN_IMPACT_SPEED - 40;
+    ninja.dashBudget = MAX_DASH_DISTANCE;
 
     const events = step(state);
 
@@ -190,6 +199,7 @@ describe("step", () => {
     b.x = 300 + NINJA_RADIUS * 2 + 20;
     b.y = 300;
     a.vx = LAUNCH_SPEED_MAX;
+    a.dashBudget = MAX_DASH_DISTANCE;
 
     let hit: Extract<ReturnType<typeof step>[number], { type: "ninjaHit" }> | undefined;
     for (let i = 0; i < 5 && !hit; i++) {

@@ -42,10 +42,10 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 - FR-7: A disconnected player (network blip, tab/phone sleep) can rejoin the same live match within a grace window (~30s) with their state intact.
 
 ### 4.2 Core gameplay
-- FR-8: Slingshot movement — press on own ninja (generous grab radius), drag back, release to launch. Launch direction is locked to the 4 cardinal directions (up/down/left/right), Nindou-style — no diagonal dashes. Movement consumes TP, which regenerates over time.
-- FR-9: Ballistic dashes with damping; ninjas collide physically with each other (knockback), walls, and obstacles.
+- FR-8: Slingshot movement — press on own ninja (generous grab radius), drag back, release to launch. Launch direction is locked to the 4 cardinal directions (up/down/left/right), Nindou-style — no diagonal dashes. The drag distance sets an exact target point, capped by the player's current TP (more TP = longer reach); the dash travels precisely to that point and no further — no ballistic overshoot. TP is spent by dashing and regenerates over time.
+- FR-9: A dash hard-stops the instant it contacts a wall or an obstacle — no bounce, no knockback carrying it past the contact point, whether or not the obstacle breaks. A dash that reaches an enemy ninja instead passes through, shattering (instantly KO'ing) that ninja and continuing on to the original target point.
 - FR-10: Destructible obstacle grid; obstacles have HP, shatter when dashed through, do not respawn within a match.
-- FR-11: Damage on ninja-vs-ninja hits; HP depletion causes KO; ~3s respawn with ~2s invulnerability.
+- FR-11: Damage on ninja-vs-ninja hits; HP depletion causes KO. Being shattered by a passing dash (FR-9) is also an instant KO regardless of remaining HP. KO'd ninjas respawn at a random point on the map with reduced HP after a short delay, with a blinking invulnerability period on arrival before they can be damaged again. A shatter KO shows a smoke effect at the point of impact.
 - FR-12: SP charges only by dealing damage; at max SP the player may fire their character's Ougi.
 - FR-13: 3–4 selectable characters, identical base stats, each defined by one unique Ougi.
 - FR-14: Matches are 2-minute timed kill-count; scoreboard at the end; sudden-death next-KO on ties.

@@ -18,6 +18,8 @@ export interface NinjaState {
   vx: number;
   vy: number;
   radius: number;
+  /** World units left to travel in the current dash; movement is clipped to this so a launch stops exactly where its drag reached, never overshooting. */
+  dashBudget: number;
   /** Inactive ninjas (KO'd, spectating, disconnected) are skipped entirely by the sim. */
   active: boolean;
 }

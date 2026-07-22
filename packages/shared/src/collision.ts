@@ -40,21 +40,14 @@ export function closingSpeed(ninja: NinjaState, contact: Contact): number {
   return along < 0 ? -along : 0;
 }
 
-/** Depenetrates and reflects a ninja off static geometry. Returns the impact speed. */
-export function resolveStaticContact(
-  ninja: NinjaState,
-  contact: Contact,
-  restitution: number,
-): number {
+/** Depenetrates and fully halts a ninja against static geometry — no bounce, the dash ends here. Returns the impact speed. */
+export function stopAtContact(ninja: NinjaState, contact: Contact): number {
   const impact = closingSpeed(ninja, contact);
   ninja.x += contact.nx * (contact.penetration + SEPARATION_SLOP);
   ninja.y += contact.ny * (contact.penetration + SEPARATION_SLOP);
-
-  if (impact > 0) {
-    const j = (1 + restitution) * impact;
-    ninja.vx += contact.nx * j;
-    ninja.vy += contact.ny * j;
-  }
+  ninja.vx = 0;
+  ninja.vy = 0;
+  ninja.dashBudget = 0;
   return impact;
 }
 

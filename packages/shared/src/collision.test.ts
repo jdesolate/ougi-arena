@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { circleAabbContact, closingSpeed, resolveNinjaPair, resolveStaticContact } from "./collision.js";
+import { circleAabbContact, closingSpeed, resolveNinjaPair, stopAtContact } from "./collision.js";
 import { NINJA_RADIUS } from "./constants.js";
 import { createNinja } from "./sim.js";
 import type { Aabb } from "./types.js";
@@ -50,16 +50,19 @@ describe("closingSpeed", () => {
   });
 });
 
-describe("resolveStaticContact", () => {
-  it("depenetrates and reflects with the given restitution", () => {
+describe("stopAtContact", () => {
+  it("depenetrates and fully halts the ninja, ending its dash", () => {
     const ninja = createNinja("a", { x: 50 + NINJA_RADIUS - 6, y: 0 });
     ninja.vx = -400;
+    ninja.dashBudget = 120;
     const contact = circleAabbContact(ninja, box)!;
 
-    const impact = resolveStaticContact(ninja, contact, 0.5);
+    const impact = stopAtContact(ninja, contact);
 
     expect(impact).toBeCloseTo(400);
-    expect(ninja.vx).toBeCloseTo(200);
+    expect(ninja.vx).toBe(0);
+    expect(ninja.vy).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
     expect(ninja.x).toBeGreaterThanOrEqual(50 + NINJA_RADIUS);
     expect(circleAabbContact(ninja, box)).toBeNull();
   });

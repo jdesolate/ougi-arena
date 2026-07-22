@@ -13,6 +13,7 @@ Purpose: **a game to genuinely enjoy and share** — fun, seamless, always playa
 
 ### Core gameplay (unchanged from original grilling)
 - Real-time combat with TP-gated discrete slingshot dashes (Nindou-style: press on your ninja, pull back, release to launch). Generous grab radius (~2–3x sprite size). Launch direction snaps to the 4 cardinal directions only — no diagonal dashes, matching Nindou's original movement.
+- **Exact-distance dash, revised 2026-07-23**: the drag distance sets a target point capped by current TP (chessboard-style — you go exactly as far as the arrow reaches, no ballistic overshoot). A dash hard-stops instantly on contact with a wall or obstacle (no bounce), whether or not the hit breaks the obstacle. A dash that reaches an enemy ninja passes through and shatters (instantly KOs) them instead of stopping, continuing on to the target point. Implemented in S3 (movement/collision only — `dashBudget` in the shared sim); shatter-KO, random-point respawn with reduced HP, blink invulnerability, and the smoke effect are **not yet implemented**, deferred to S6 (HP/KO/respawn/invulnerability) and S10 (smoke/blink juice) since they need the HP system S6 introduces.
 - 2–4 player free-for-all rooms, joinable by shared link or Quick Play.
 - Match: 2-minute timed kill-count. HP-based KOs, ~3s respawn with ~2s invulnerability, sudden-death next-KO tiebreak.
 - 3–4 ninjas, identical base stats; each character is defined by one Ougi (ultimate). SP charges by dealing damage only; Ougi fires at max SP.
@@ -20,7 +21,8 @@ Purpose: **a game to genuinely enjoy and share** — fun, seamless, always playa
 - **AI bots fill empty slots and power a practice mode — in MVP** (the game must be fun even with zero other players online).
 
 ### Simulation & physics
-- Hand-rolled deterministic fixed-timestep sim: impulse, linear damping, circle-vs-circle and circle-vs-AABB collision, elastic-ish ninja-vs-ninja knockback. No physics engine — it stays ~200 lines, runs identically on server and client, and stays inspectable.
+- Hand-rolled deterministic fixed-timestep sim: impulse, linear damping, circle-vs-AABB collision. No physics engine — it stays ~200 lines, runs identically on server and client, and stays inspectable.
+- Walls and obstacles hard-stop a dash on contact (`stopAtContact`) rather than bouncing it — movement is clipped to an exact `dashBudget` distance set at launch, so a dash never travels further than its drag reached. Ninja-vs-ninja contact still uses elastic-ish knockback (`resolveNinjaPair`) as a placeholder until S6 replaces it with the shatter-KO rule above.
 - Sim lives in the shared package; the Colyseus room runs it authoritatively.
 
 ### Netcode

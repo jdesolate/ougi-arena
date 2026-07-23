@@ -48,7 +48,7 @@ async function tryReconnect(): Promise<Room | null> {
 }
 
 /** Runs the pre-match lobby (create/join by link code, nickname, host start, spectate). Calls `onStart` once the match begins. */
-export function initLobby(onStart: () => void): void {
+export function initLobby(onStart: (room: Room) => void): void {
   const lobbyEl = el<HTMLDivElement>("lobby");
   const formEl = el<HTMLDivElement>("lobby-form");
   const roomEl = el<HTMLDivElement>("lobby-room");
@@ -64,6 +64,9 @@ export function initLobby(onStart: () => void): void {
   const spectateNoteEl = el<HTMLParagraphElement>("spectate-note");
   const startBtn = el<HTMLButtonElement>("start-btn");
   const waitingNoteEl = el<HTMLParagraphElement>("waiting-note");
+
+  // Guards against `onStart` re-firing: once playing, state syncs ~30x/sec and each change re-renders.
+  let matchStarted = false;
 
   function showError(message: string): void {
     errorEl.textContent = message;
@@ -86,9 +89,10 @@ export function initLobby(onStart: () => void): void {
     startBtn.hidden = !me?.isHost;
     waitingNoteEl.hidden = Boolean(me?.isHost);
 
-    if (state.phase === "playing") {
+    if (state.phase === "playing" && !matchStarted) {
+      matchStarted = true;
       lobbyEl.hidden = true;
-      onStart();
+      onStart(room);
     }
   }
 

@@ -3,8 +3,8 @@ import { DOJO_ARENA } from "@ougi-arena/shared";
 import { GameScene } from "./scenes/GameScene.js";
 import { initLobby } from "./lobby.js";
 
-// GameScene still runs its own local sim; wiring the room's authoritative state in is S5.
-initLobby(() => {
+// The match renders the room's authoritative state; the scene is created once the host starts.
+initLobby((room) => {
   new Phaser.Game({
     type: Phaser.AUTO,
     parent: "app",
@@ -15,6 +15,6 @@ initLobby(() => {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [GameScene],
+    scene: [new GameScene(room)],
   });
 });

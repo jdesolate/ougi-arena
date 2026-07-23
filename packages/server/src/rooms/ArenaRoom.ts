@@ -1,11 +1,23 @@
 import { Room, Client } from "@colyseus/core";
-import { Schema, MapSchema, type } from "@colyseus/schema";
+import { Schema, ArraySchema, MapSchema, type } from "@colyseus/schema";
+import {
+  DOJO_ARENA,
+  SIM_DT,
+  createSimState,
+  step,
+  type LaunchCommand,
+  type SimState,
+} from "@ougi-arena/shared";
 
 /** Active combatants are capped at 4; the room stays open past that so late joiners can still spectate. */
 const MAX_ACTIVE_PLAYERS = 4;
 const MAX_CLIENTS = 8;
 const NICKNAME_MAX_LENGTH = 16;
 const RECONNECTION_GRACE_SECONDS = 20;
+
+const SIM_DT_MS = SIM_DT * 1000;
+/** Caps fixed steps per simulation callback so a stalled event loop can't spiral into a catch-up freeze. */
+const MAX_STEPS_PER_TICK = 5;
 
 interface JoinOptions {
   nickname?: string;
@@ -16,6 +28,12 @@ interface CreateOptions {
   isPrivate?: boolean;
 }
 
+interface LaunchMessage {
+  dirX?: number;
+  dirY?: number;
+  power?: number;
+}
+
 export class PlayerState extends Schema {
   @type("string") nickname = "";
   @type("string") characterId = "default";
@@ -24,22 +42,48 @@ export class PlayerState extends Schema {
   @type("boolean") spectating = false;
 }
 
-export class LobbyState extends Schema {
-  @type("string") phase: "lobby" | "playing" = "lobby";
-  @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+/** Authoritative ninja position streamed to clients; id is the owner's sessionId so a client finds its own. */
+export class NinjaSchema extends Schema {
+  @type("string") id = "";
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("boolean") active = true;
 }
 
-/** Handles the pre-match lobby: join by the room's own id as the link code, nickname, host start, spectate, reconnection. */
+/** Only the mutable fields sync — obstacle geometry is static map data the client already has. */
+export class ObstacleSchema extends Schema {
+  @type("number") hp = 0;
+  @type("boolean") alive = true;
+}
+
+export class LobbyState extends Schema {
+  @type("string") phase: "lobby" | "playing" = "lobby";
+  @type("number") tick = 0;
+  @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+  @type([NinjaSchema]) ninjas = new ArraySchema<NinjaSchema>();
+  @type([ObstacleSchema]) obstacles = new ArraySchema<ObstacleSchema>();
+}
+
+/**
+ * Lobby plus the authoritative match: once the host starts, the room advances the shared sim at a fixed 30Hz
+ * and mirrors it into the schema so every client renders the same world.
+ */
 export class ArenaRoom extends Room<LobbyState> {
   maxClients = MAX_CLIENTS;
 
   /** Join order, tracked separately from `players` so host migration always picks the oldest remaining player. */
   private joinOrder: string[] = [];
 
+  private sim: SimState | null = null;
+  /** Launches received since the last tick; drained into the next fixed step. */
+  private launchQueue: LaunchCommand[] = [];
+  private accumulatorMs = 0;
+
   onCreate(options: CreateOptions = {}): void {
     this.setState(new LobbyState());
     this.setPrivate(options.isPrivate === true);
     this.onMessage("start", (client) => this.handleStart(client));
+    this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
@@ -71,7 +115,91 @@ export class ArenaRoom extends Room<LobbyState> {
   private handleStart(client: Client): void {
     const player = this.state.players.get(client.sessionId);
     if (!player?.isHost || this.state.phase === "playing") return;
+    this.startMatch();
+  }
+
+  private handleLaunch(client: Client, message: LaunchMessage): void {
+    if (this.state.phase !== "playing") return;
+    const dirX = Number(message?.dirX);
+    const dirY = Number(message?.dirY);
+    const power = Number(message?.power);
+    if (!Number.isFinite(dirX) || !Number.isFinite(dirY) || !Number.isFinite(power)) return;
+
+    this.launchQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
+  }
+
+  /** Builds the sim from the current active players and starts advancing it at a fixed 30Hz. */
+  private startMatch(): void {
+    const activeIds = this.joinOrder.filter((id) => {
+      const player = this.state.players.get(id);
+      return player !== undefined && !player.spectating;
+    });
+
+    this.sim = createSimState(activeIds, DOJO_ARENA);
+    this.launchQueue = [];
+    this.accumulatorMs = 0;
+
+    this.state.ninjas.clear();
+    for (const ninja of this.sim.ninjas) {
+      const schema = new NinjaSchema();
+      schema.id = ninja.id;
+      schema.x = ninja.x;
+      schema.y = ninja.y;
+      schema.active = ninja.active;
+      this.state.ninjas.push(schema);
+    }
+
+    this.state.obstacles.clear();
+    for (const obstacle of this.sim.obstacles) {
+      const schema = new ObstacleSchema();
+      schema.hp = obstacle.hp;
+      schema.alive = obstacle.alive;
+      this.state.obstacles.push(schema);
+    }
+
     this.state.phase = "playing";
+    this.setSimulationInterval((deltaMs) => this.tick(deltaMs), SIM_DT_MS);
+  }
+
+  private tick(deltaMs: number): void {
+    if (!this.sim) return;
+
+    this.accumulatorMs += deltaMs;
+    let steps = 0;
+    while (this.accumulatorMs >= SIM_DT_MS && steps < MAX_STEPS_PER_TICK) {
+      // Queued launches apply on the first step only, so a catch-up burst can't fire the same dash repeatedly.
+      const commands = steps === 0 ? this.launchQueue : [];
+      step(this.sim, commands);
+      this.accumulatorMs -= SIM_DT_MS;
+      steps++;
+    }
+    this.launchQueue = [];
+
+    this.syncState();
+  }
+
+  /** Mirrors the plain sim into the synced schema; arrays stay index-aligned with the sim. */
+  private syncState(): void {
+    if (!this.sim) return;
+
+    for (let i = 0; i < this.sim.ninjas.length; i++) {
+      const ninja = this.sim.ninjas[i];
+      const schema = this.state.ninjas[i];
+      if (!ninja || !schema) continue;
+      schema.x = ninja.x;
+      schema.y = ninja.y;
+      schema.active = ninja.active;
+    }
+
+    for (let i = 0; i < this.sim.obstacles.length; i++) {
+      const obstacle = this.sim.obstacles[i];
+      const schema = this.state.obstacles[i];
+      if (!obstacle || !schema) continue;
+      schema.hp = obstacle.hp;
+      schema.alive = obstacle.alive;
+    }
+
+    this.state.tick = this.sim.tick;
   }
 
   private activePlayerCount(): number {
@@ -93,6 +221,12 @@ export class ArenaRoom extends Room<LobbyState> {
     const wasHost = this.state.players.get(sessionId)?.isHost ?? false;
     this.state.players.delete(sessionId);
     this.joinOrder = this.joinOrder.filter((id) => id !== sessionId);
+
+    // Drop the ninja from the live match so it stops updating and rendering.
+    if (this.sim) {
+      const ninja = this.sim.ninjas.find((n) => n.id === sessionId);
+      if (ninja) ninja.active = false;
+    }
 
     if (wasHost) this.migrateHost();
   }

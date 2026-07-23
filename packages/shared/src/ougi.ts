@@ -10,8 +10,8 @@ import {
   SURGE_DURATION_TICKS,
 } from "./constants.js";
 import { damageNinja, isVulnerable, shatterNinja } from "./damage.js";
-import { closestPointOnAabb, lengthOf } from "./math.js";
-import type { Aabb, NinjaState, ObstacleState, SimEvent, SimState } from "./types.js";
+import { closestPointOnAabb, laneDistance, lengthOf } from "./math.js";
+import type { NinjaState, ObstacleState, SimEvent, SimState } from "./types.js";
 
 /**
  * An ultimate, expressed as effect functions over the sim. Definitions are pure and deterministic like the
@@ -147,28 +147,6 @@ const CROSS_SLASH: OugiDefinition = {
     }
   },
 };
-
-/** Distance from the origin to a box blocking a cardinal lane, or null if the box isn't in the lane at all. */
-function laneDistance(
-  px: number,
-  py: number,
-  dir: { x: number; y: number },
-  box: Aabb,
-  laneHalf: number,
-): number | null {
-  const horizontal = dir.x !== 0;
-  const sign = horizontal ? dir.x : dir.y;
-
-  const perpGap = horizontal ? Math.abs(box.y - py) : Math.abs(box.x - px);
-  const perpHalf = horizontal ? box.halfH : box.halfW;
-  if (perpGap > perpHalf + laneHalf) return null;
-
-  // A box straddling the origin along the axis is beside the caster, not in front — it doesn't block this lane.
-  const alongGap = (horizontal ? box.x - px : box.y - py) * sign;
-  const alongHalf = horizontal ? box.halfW : box.halfH;
-  const near = alongGap - alongHalf;
-  return near >= 0 ? near : null;
-}
 
 function inLane(
   px: number,

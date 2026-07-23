@@ -17,6 +17,7 @@ interface PlayerView {
   nickname: string;
   isHost: boolean;
   spectating: boolean;
+  isBot: boolean;
 }
 
 function el<T extends HTMLElement>(id: string): T {
@@ -82,7 +83,11 @@ export function initLobby(onStart: (room: Room) => void): void {
     let me: PlayerView | undefined;
     for (const [sessionId, player] of state.players.entries()) {
       const li = document.createElement("li");
-      const tags = [player.isHost ? "host" : null, player.spectating ? "spectating" : null].filter(Boolean);
+      const tags = [
+        player.isHost ? "host" : null,
+        player.isBot ? "bot" : null,
+        player.spectating ? "spectating" : null,
+      ].filter(Boolean);
       li.textContent = tags.length ? `${player.nickname} (${tags.join(", ")})` : player.nickname;
       playerListEl.appendChild(li);
       if (sessionId === room.sessionId) me = player;

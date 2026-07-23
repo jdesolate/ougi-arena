@@ -12,6 +12,7 @@ import {
   type SimCommand,
   type SimState,
 } from "@ougi-arena/shared";
+import { BOT_ID_PREFIX, decideBotCommand, isBotId } from "../bot.js";
 
 /** Active combatants are capped at 4; the room stays open past that so late joiners can still spectate. */
 const MAX_ACTIVE_PLAYERS = 4;
@@ -50,6 +51,8 @@ export class PlayerState extends Schema {
   @type("boolean") spectating = false;
   /** KO count for the current match; reset on every match start (including rematch). */
   @type("number") score = 0;
+  /** True for a slot filled by AI rather than a real client; bots are visibly labeled and yield to humans. */
+  @type("boolean") isBot = false;
 }
 
 /** Authoritative ninja state streamed to clients; id is the owner's sessionId so a client finds its own. */
@@ -103,6 +106,8 @@ export class ArenaRoom extends Room<LobbyState> {
   private accumulatorMs = 0;
   /** Source of truth for the match clock; `state.matchTimeRemaining` is just its seconds display. */
   private matchTicksRemaining = 0;
+  /** Never reused within a room's lifetime, so a stale reference from a just-removed bot can't collide. */
+  private botCounter = 0;
 
   onCreate(options: CreateOptions = {}): void {
     this.setState(new LobbyState());
@@ -176,12 +181,23 @@ export class ArenaRoom extends Room<LobbyState> {
     ninja.charging = message?.active === true;
   }
 
-  /** Builds the sim from the current active players and starts advancing it at a fixed 30Hz. Also used for rematch. */
+  /**
+   * Builds the sim from the current active players and starts advancing it at a fixed 30Hz. Also used for
+   * rematch. Bots are rebuilt from scratch every time this runs, which is what makes them yield their slot to
+   * any human who joined (and was spectating) since the last match started.
+   */
   private startMatch(): void {
-    const activeIds = this.joinOrder.filter((id) => {
+    this.clearBots();
+
+    const humanIds = this.joinOrder.filter((id) => this.state.players.has(id));
+    const activeHumanIds = humanIds.slice(0, MAX_ACTIVE_PLAYERS);
+    for (const id of humanIds) {
       const player = this.state.players.get(id);
-      return player !== undefined && !player.spectating;
-    });
+      if (player) player.spectating = !activeHumanIds.includes(id);
+    }
+
+    const botIds = this.addBots(MAX_ACTIVE_PLAYERS - activeHumanIds.length);
+    const activeIds = [...activeHumanIds, ...botIds];
 
     const characterIds = activeIds.map((id) => this.state.players.get(id)?.characterId ?? DEFAULT_CHARACTER_ID);
 
@@ -226,6 +242,8 @@ export class ArenaRoom extends Room<LobbyState> {
 
   private tick(deltaMs: number): void {
     if (!this.sim || this.state.phase !== "playing") return;
+
+    this.runBotAI();
 
     this.accumulatorMs += deltaMs;
     let steps = 0;
@@ -315,6 +333,42 @@ export class ArenaRoom extends Room<LobbyState> {
     }
 
     this.state.tick = this.sim.tick;
+  }
+
+  /** One decision per callback (not per fixed step), same cadence real player input arrives at. */
+  private runBotAI(): void {
+    if (!this.sim) return;
+    for (const ninja of this.sim.ninjas) {
+      if (!isBotId(ninja.id)) continue;
+      const { command, charging } = decideBotCommand(this.sim, ninja);
+      ninja.charging = charging;
+      if (command) this.commandQueue.push(command);
+    }
+  }
+
+  /** Fills `count` empty active slots with bots, round-robining characters so they're not all identical. */
+  private addBots(count: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      this.botCounter++;
+      const id = `${BOT_ID_PREFIX}${this.botCounter}`;
+      const player = new PlayerState();
+      player.nickname = `Bot ${this.botCounter}`;
+      player.characterId = CHARACTERS[(this.botCounter - 1) % CHARACTERS.length]!.id;
+      player.isBot = true;
+      player.spectating = false;
+      this.state.players.set(id, player);
+      this.joinOrder.push(id);
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  private clearBots(): void {
+    for (const id of [...this.state.players.keys()]) {
+      if (isBotId(id)) this.state.players.delete(id);
+    }
+    this.joinOrder = this.joinOrder.filter((id) => !isBotId(id));
   }
 
   private activePlayerCount(): number {

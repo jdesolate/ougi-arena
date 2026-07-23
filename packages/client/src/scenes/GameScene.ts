@@ -55,6 +55,7 @@ interface PlayerView {
   characterId: string;
   nickname: string;
   isHost: boolean;
+  isBot: boolean;
   score: number;
 }
 interface ArenaStateView {
@@ -238,7 +239,7 @@ export class GameScene extends Phaser.Scene {
       .sort((a, b) => b.player.score - a.player.score);
     for (const row of rows) {
       const li = document.createElement("li");
-      li.textContent = `${row.player.nickname}: ${row.player.score}`;
+      li.textContent = `${row.player.nickname}${row.player.isBot ? " (bot)" : ""}: ${row.player.score}`;
       this.hudScoreboardEl.appendChild(li);
     }
   }
@@ -262,7 +263,7 @@ export class GameScene extends Phaser.Scene {
       .sort((a, b) => b.player.score - a.player.score);
     for (const row of rows) {
       const li = document.createElement("li");
-      li.textContent = `${row.player.nickname}: ${row.player.score}`;
+      li.textContent = `${row.player.nickname}${row.player.isBot ? " (bot)" : ""}: ${row.player.score}`;
       if (row.id === state.winnerId) li.classList.add("winner");
       this.matchEndResultsEl.appendChild(li);
     }

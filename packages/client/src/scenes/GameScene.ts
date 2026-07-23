@@ -40,6 +40,7 @@ interface NinjaView {
   active: boolean;
   hp: number;
   tp: number;
+  charging: boolean;
   sp: number;
   invulnerableTicks: number;
 }
@@ -306,6 +307,10 @@ export class GameScene extends Phaser.Scene {
     this.dragging = true;
     this.pointerX = pointer.worldX;
     this.pointerY = pointer.worldY;
+
+    // Press-and-hold charges TP; it keeps charging through the drag below, right up to release.
+    ninja.charging = true;
+    this.room.send("charge", { active: true });
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
@@ -320,7 +325,9 @@ export class GameScene extends Phaser.Scene {
     this.aimGfx.clear();
 
     const ninja = this.localNinja();
+    this.room.send("charge", { active: false });
     if (!ninja) return;
+    ninja.charging = false;
 
     const dragX = this.pointerX - ninja.x;
     const dragY = this.pointerY - ninja.y;
@@ -358,7 +365,8 @@ export class GameScene extends Phaser.Scene {
     this.aimGfx.lineBetween(ninja.x, ninja.y, this.pointerX, this.pointerY);
 
     // Launch preview: exactly where the dash will land, so the arrow shows the real destination, not just a direction.
-    const previewLen = power * MAX_DASH_DISTANCE;
+    // Capped by current TP too — as the hold charges TP, the preview grows in real time to match.
+    const previewLen = Math.min(power * MAX_DASH_DISTANCE, ninja.tp);
     const dir = snapToCardinal(-dragX, -dragY);
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;

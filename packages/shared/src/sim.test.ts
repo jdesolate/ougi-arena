@@ -261,16 +261,30 @@ describe("step", () => {
     expect(b.active).toBe(true);
   });
 
-  it("regenerates TP over time up to the max", () => {
+  it("never regenerates TP on its own — only while charging", () => {
     const state = createSimState(["a"]);
     const ninja = state.ninjas[0]!;
     ninja.tp = 0;
+    ninja.charging = false;
+
+    for (let i = 0; i < 200; i++) step(state);
+    expect(ninja.tp).toBe(0);
+  });
+
+  it("charges TP while held, up to the max, and stops the instant a dash fires", () => {
+    const state = createSimState(["a"]);
+    const ninja = state.ninjas[0]!;
+    ninja.tp = 0;
+    ninja.charging = true;
 
     step(state);
     expect(ninja.tp).toBeGreaterThan(0);
 
     for (let i = 0; i < 1000; i++) step(state);
     expect(ninja.tp).toBe(MAX_TP);
+
+    step(state, [{ type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 0.1 }]);
+    expect(ninja.charging).toBe(false);
   });
 
   it("respawns a KO'd ninja after the delay with reduced HP and fresh invulnerability", () => {

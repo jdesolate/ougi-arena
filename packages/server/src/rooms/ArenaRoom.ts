@@ -36,6 +36,10 @@ interface LaunchMessage {
   power?: number;
 }
 
+interface ChargeMessage {
+  active?: boolean;
+}
+
 export class PlayerState extends Schema {
   @type("string") nickname = "";
   @type("string") characterId = "default";
@@ -54,6 +58,7 @@ export class NinjaSchema extends Schema {
   @type("boolean") active = true;
   @type("number") hp = 0;
   @type("number") tp = 0;
+  @type("boolean") charging = false;
   @type("number") sp = 0;
   @type("number") invulnerableTicks = 0;
 }
@@ -98,6 +103,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.setPrivate(options.isPrivate === true);
     this.onMessage("start", (client) => this.handleStart(client));
     this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
+    this.onMessage("charge", (client, message: ChargeMessage) => this.handleCharge(client, message));
     this.onMessage("rematch", (client) => this.handleRematch(client));
   }
 
@@ -149,6 +155,14 @@ export class ArenaRoom extends Room<LobbyState> {
     this.launchQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
   }
 
+  /** Continuous hold state, not a queued command — TP accrues tick over tick for as long as this stays true. */
+  private handleCharge(client: Client, message: ChargeMessage): void {
+    if (!this.sim || this.state.phase !== "playing") return;
+    const ninja = this.sim.ninjas.find((n) => n.id === client.sessionId);
+    if (!ninja || !ninja.active) return;
+    ninja.charging = message?.active === true;
+  }
+
   /** Builds the sim from the current active players and starts advancing it at a fixed 30Hz. Also used for rematch. */
   private startMatch(): void {
     const activeIds = this.joinOrder.filter((id) => {
@@ -172,6 +186,7 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.active = ninja.active;
       schema.hp = ninja.hp;
       schema.tp = ninja.tp;
+      schema.charging = ninja.charging;
       schema.sp = ninja.sp;
       schema.invulnerableTicks = ninja.invulnerableTicks;
       this.state.ninjas.push(schema);
@@ -265,6 +280,7 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.active = ninja.active;
       schema.hp = ninja.hp;
       schema.tp = ninja.tp;
+      schema.charging = ninja.charging;
       schema.sp = ninja.sp;
       schema.invulnerableTicks = ninja.invulnerableTicks;
     }

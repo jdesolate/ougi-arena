@@ -18,7 +18,7 @@ import {
   RESPAWN_INVULN_TICKS,
   SIM_DT,
   SP_GAIN_ON_KO,
-  TP_REGEN_PER_TICK,
+  TP_CHARGE_PER_TICK,
 } from "./constants.js";
 import { clamp, lengthOf } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
@@ -50,6 +50,7 @@ export function createNinja(id: string, spawn: Vec2): NinjaState {
     active: true,
     hp: MAX_HP,
     tp: MAX_TP,
+    charging: false,
     sp: 0,
     invulnerableTicks: 0,
     respawnTicks: 0,
@@ -117,6 +118,7 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
   ninja.vy = (command.dirY / len) * speed;
   ninja.dashBudget = distance;
   ninja.tp -= distance;
+  ninja.charging = false;
   return speed;
 }
 
@@ -246,9 +248,11 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
   }
 
   for (const ninja of state.ninjas) {
-    ninja.tp = Math.min(MAX_TP, ninja.tp + TP_REGEN_PER_TICK);
-
     if (ninja.active) {
+      // TP only refills while the player is actively holding their ninja — never passively, and never mid-dash.
+      if (ninja.charging && ninja.dashBudget <= 0) {
+        ninja.tp = Math.min(MAX_TP, ninja.tp + TP_CHARGE_PER_TICK);
+      }
       if (ninja.invulnerableTicks > 0) ninja.invulnerableTicks--;
       continue;
     }
@@ -269,6 +273,7 @@ function shatterNinja(attacker: NinjaState, target: NinjaState, events: SimEvent
   target.vx = 0;
   target.vy = 0;
   target.dashBudget = 0;
+  target.charging = false;
   target.invulnerableTicks = 0;
   target.respawnTicks = RESPAWN_DELAY_TICKS;
   attacker.sp = Math.min(MAX_SP, attacker.sp + SP_GAIN_ON_KO);
@@ -284,6 +289,7 @@ function respawnNinja(state: SimState, ninja: NinjaState): void {
   ninja.dashBudget = 0;
   ninja.hp = MAX_HP * RESPAWN_HP_FRACTION;
   ninja.tp = MAX_TP;
+  ninja.charging = false;
   ninja.invulnerableTicks = RESPAWN_INVULN_TICKS;
   ninja.active = true;
 }

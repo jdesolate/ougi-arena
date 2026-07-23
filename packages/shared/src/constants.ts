@@ -23,9 +23,9 @@ export const MAX_DASH_DISTANCE = 400;
 /** TP is spent 1:1 per world unit dashed, so it doubles as the hard cap on dash range. */
 export const MAX_TP = MAX_DASH_DISTANCE;
 
-/** TP regenerates fully in this many seconds when idle. */
-export const TP_REGEN_SECONDS = 2.5;
-export const TP_REGEN_PER_TICK = MAX_TP / (TP_REGEN_SECONDS * SIM_TICK_RATE_HZ);
+/** TP only refills while the player holds their ninja (press-and-hold to charge) — never passively. Fills in this many seconds of holding. */
+export const TP_CHARGE_SECONDS = 2.5;
+export const TP_CHARGE_PER_TICK = MAX_TP / (TP_CHARGE_SECONDS * SIM_TICK_RATE_HZ);
 
 /** Ninja hit points; a dash that shatters an enemy sets this straight to 0 rather than chipping it. */
 export const MAX_HP = 100;

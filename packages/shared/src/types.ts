@@ -25,6 +25,8 @@ export interface NinjaState {
   hp: number;
   /** Also the hard cap on dash range — a launch costs 1 TP per world unit dashed. */
   tp: number;
+  /** True while the player is pressing-and-holding this ninja; TP only refills during this window. */
+  charging: boolean;
   /** Ougi meter; not yet consumable, S7 adds the effects it triggers. */
   sp: number;
   /** Ticks left of post-respawn invulnerability; 0 when vulnerable. */

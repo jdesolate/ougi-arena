@@ -2,7 +2,6 @@ import { circleAabbContact, circlesOverlap, closingSpeed, resolveNinjaPair, stop
 import {
   LAUNCH_SPEED_MAX,
   LAUNCH_SPEED_MIN,
-  LINEAR_DAMPING_PER_TICK,
   MAX_DASH_DISTANCE,
   MAX_HP,
   MAX_TP,
@@ -11,7 +10,6 @@ import {
   NINJA_RESTITUTION,
   OBSTACLE_DAMAGE_PER_IMPACT_SPEED,
   OBSTACLE_HP,
-  REST_SPEED,
   RESPAWN_HP_FRACTION,
   RESPAWN_INVULN_TICKS,
   SIM_DT,
@@ -142,21 +140,11 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
   return speed;
 }
 
-/** Advances a ninja by one tick, clipping movement to what's left of its dash so it never overshoots the drag's reach. */
+/**
+ * Advances a ninja by one tick. A dash runs at constant launch speed and ends exactly when its budget is
+ * spent — no damping tail, so the aim preview's landing point is a promise rather than an estimate.
+ */
 function integrate(ninja: NinjaState): void {
-  ninja.vx *= LINEAR_DAMPING_PER_TICK;
-  ninja.vy *= LINEAR_DAMPING_PER_TICK;
-
-  // A dash that damps below rest speed is finished even with budget left; leaving that budget behind would
-  // strand the ninja mid-dash forever — unable to recharge TP, and still lethal to anyone it touched.
-  if (lengthOf(ninja.vx, ninja.vy) < REST_SPEED) {
-    ninja.vx = 0;
-    ninja.vy = 0;
-    ninja.dashBudget = 0;
-    ninja.dashLethal = false;
-    return;
-  }
-
   if (ninja.dashBudget <= 0) {
     ninja.vx = 0;
     ninja.vy = 0;
@@ -167,6 +155,14 @@ function integrate(ninja: NinjaState): void {
   let dx = ninja.vx * SIM_DT;
   let dy = ninja.vy * SIM_DT;
   const step = lengthOf(dx, dy);
+
+  // Budget with no velocity behind it would strand the ninja mid-dash forever — unable to recharge TP, and
+  // still lethal to anyone it touched. Shouldn't happen, but the cost of being wrong is a permanently broken ninja.
+  if (step <= 0) {
+    ninja.dashBudget = 0;
+    ninja.dashLethal = false;
+    return;
+  }
 
   if (step >= ninja.dashBudget) {
     const scale = ninja.dashBudget / step;

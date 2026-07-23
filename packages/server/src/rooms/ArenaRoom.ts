@@ -14,6 +14,8 @@ import {
 } from "@ougi-arena/shared";
 import { BOT_ID_PREFIX, decideBotCommand, isBotId } from "../bot.js";
 
+export const ARENA_ROOM_NAME = "arena";
+
 /** Active combatants are capped at 4; the room stays open past that so late joiners can still spectate. */
 const MAX_ACTIVE_PLAYERS = 4;
 const MAX_CLIENTS = 8;
@@ -23,6 +25,23 @@ const RECONNECTION_GRACE_SECONDS = 20;
 const SIM_DT_MS = SIM_DT * 1000;
 /** Caps fixed steps per simulation callback so a stalled event loop can't spiral into a catch-up freeze. */
 const MAX_STEPS_PER_TICK = 5;
+
+/**
+ * What the public room list needs to know without opening a socket. Kept on the room's matchmaking metadata
+ * so `matchMaker.query` can serve it; bots are excluded from `players` since a bot-filled room isn't full.
+ */
+export interface RoomMetadata {
+  phase: "lobby" | "playing" | "finished";
+  hostName: string;
+  players: number;
+  maxPlayers: number;
+}
+
+export interface RoomListing extends RoomMetadata {
+  roomId: string;
+  clients: number;
+  maxClients: number;
+}
 
 interface JoinOptions {
   nickname?: string;
@@ -37,6 +56,8 @@ interface LaunchMessage {
   dirX?: number;
   dirY?: number;
   power?: number;
+  /** Client-chosen sequence number, echoed back once the launch has actually been applied to the sim. */
+  seq?: number;
 }
 
 interface ChargeMessage {
@@ -61,6 +82,8 @@ export class NinjaSchema extends Schema {
   @type("number") x = 0;
   @type("number") y = 0;
   @type("boolean") active = true;
+  /** Lets a client tell "the server hasn't moved me yet" from "the server is still moving me" when reconciling. */
+  @type("boolean") dashing = false;
   @type("number") hp = 0;
   @type("number") tp = 0;
   @type("boolean") charging = false;
@@ -103,6 +126,8 @@ export class ArenaRoom extends Room<LobbyState> {
   private sim: SimState | null = null;
   /** Launches and Ougi fires received since the last tick; drained into the next fixed step. */
   private commandQueue: SimCommand[] = [];
+  /** Launch receipts owed to clients, flushed the moment the step that consumed the command has run. */
+  private pendingAcks: { client: Client; seq: number }[] = [];
   private accumulatorMs = 0;
   /** Source of truth for the match clock; `state.matchTimeRemaining` is just its seconds display. */
   private matchTicksRemaining = 0;
@@ -117,6 +142,9 @@ export class ArenaRoom extends Room<LobbyState> {
     this.onMessage("charge", (client, message: ChargeMessage) => this.handleCharge(client, message));
     this.onMessage("ougi", (client) => this.handleOugi(client));
     this.onMessage("rematch", (client) => this.handleRematch(client));
+    // Round-trip probe for the client's latency readout; echoes the client's own timestamp back untouched.
+    this.onMessage("ping", (client, sentAt: number) => client.send("pong", sentAt));
+    this.publishMetadata();
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
@@ -128,6 +156,29 @@ export class ArenaRoom extends Room<LobbyState> {
 
     this.joinOrder.push(client.sessionId);
     this.state.players.set(client.sessionId, player);
+    this.publishMetadata();
+  }
+
+  /**
+   * Keeps the public room list's view of this room current — player count, host, and phase, so Quick Play can
+   * tell a joinable lobby from a match already in progress without opening a socket.
+   */
+  private publishMetadata(): void {
+    let hostName = "";
+    let players = 0;
+    for (const player of this.state.players.values()) {
+      if (player.isBot) continue;
+      players++;
+      if (player.isHost) hostName = player.nickname;
+    }
+
+    const metadata: RoomMetadata = {
+      phase: this.state.phase,
+      hostName,
+      players,
+      maxPlayers: MAX_ACTIVE_PLAYERS,
+    };
+    void this.setMetadata(metadata);
   }
 
   async onLeave(client: Client, consented: boolean): Promise<void> {
@@ -165,6 +216,10 @@ export class ArenaRoom extends Room<LobbyState> {
     if (!Number.isFinite(dirX) || !Number.isFinite(dirY) || !Number.isFinite(power)) return;
 
     this.commandQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
+
+    // The sequence number is client bookkeeping, not sim input, so it rides alongside the command rather than in it.
+    const seq = Number(message?.seq);
+    if (Number.isFinite(seq)) this.pendingAcks.push({ client, seq });
   }
 
   /** The sim ignores this unless the meter is actually full, so no server-side SP check is needed here. */
@@ -203,6 +258,7 @@ export class ArenaRoom extends Room<LobbyState> {
 
     this.sim = createSimState(activeIds, DOJO_ARENA, characterIds);
     this.commandQueue = [];
+    this.pendingAcks = [];
     this.accumulatorMs = 0;
     this.matchTicksRemaining = MATCH_DURATION_TICKS;
 
@@ -215,6 +271,7 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.x = ninja.x;
       schema.y = ninja.y;
       schema.active = ninja.active;
+      schema.dashing = ninja.dashBudget > 0;
       schema.hp = ninja.hp;
       schema.tp = ninja.tp;
       schema.charging = ninja.charging;
@@ -238,6 +295,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.state.winnerId = "";
     this.state.matchTimeRemaining = Math.ceil(this.matchTicksRemaining / SIM_TICK_RATE_HZ);
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), SIM_DT_MS);
+    this.publishMetadata();
   }
 
   private tick(deltaMs: number): void {
@@ -263,7 +321,13 @@ export class ArenaRoom extends Room<LobbyState> {
     }
     // Only the first step consumes the queue, so clear it only if a step actually ran — a callback that
     // arrives before a full timestep has accrued must leave those commands queued, not drop them.
-    if (steps > 0) this.commandQueue = [];
+    if (steps > 0) {
+      this.commandQueue = [];
+      // Sent only now, so an ack always means "your dash is in the authoritative world" — the client can
+      // safely resume reconciling against a server position that finally includes the launch.
+      for (const ack of this.pendingAcks) ack.client.send("launchAck", ack.seq);
+      this.pendingAcks = [];
+    }
 
     this.syncState();
 
@@ -285,6 +349,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.state.phase = "finished";
     const leaders = this.leaderIds();
     this.state.winnerId = leaders.length === 1 ? leaders[0]! : "";
+    this.publishMetadata();
   }
 
   /** SessionIds tied for the highest score among this match's participants (`sim.ninjas`), spectators excluded. */
@@ -315,6 +380,7 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.x = ninja.x;
       schema.y = ninja.y;
       schema.active = ninja.active;
+      schema.dashing = ninja.dashBudget > 0;
       schema.hp = ninja.hp;
       schema.tp = ninja.tp;
       schema.charging = ninja.charging;
@@ -398,6 +464,7 @@ export class ArenaRoom extends Room<LobbyState> {
     }
 
     if (wasHost) this.migrateHost();
+    this.publishMetadata();
   }
 
   private migrateHost(): void {

@@ -7,13 +7,7 @@ export const SIM_DT = 1 / SIM_TICK_RATE_HZ;
 /** Ninja body radius in world units. */
 export const NINJA_RADIUS = 18;
 
-/** Velocity retained per tick; a per-tick constant rather than a per-second rate so no pow() enters the sim. */
-export const LINEAR_DAMPING_PER_TICK = 0.93;
-
-/** Below this speed a ninja is snapped to rest, so dashes end at the same tick everywhere. */
-export const REST_SPEED = 6;
-
-/** Launch speed range mapped from drag power 0..1; travel distance is separately capped by MAX_DASH_DISTANCE. */
+/** Launch speed range mapped from drag power 0..1; it sets how *fast* a dash covers its distance, not how far. */
 export const LAUNCH_SPEED_MIN = 220;
 export const LAUNCH_SPEED_MAX = 900;
 

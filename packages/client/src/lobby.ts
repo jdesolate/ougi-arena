@@ -1,9 +1,12 @@
 import type { Room } from "colyseus.js";
 import { CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
-import { colyseusClient } from "./network/colyseus.js";
+import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
+import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
 
 const NICKNAME_MAX_LENGTH = 16;
 const RECONNECT_STORAGE_KEY = "ougi-arena:reconnect";
+/** Room list refresh cadence while the landing page is up; cheap GET, and stale lobbies are the whole problem. */
+const ROOM_LIST_POLL_MS = 4000;
 
 interface StoredReconnect {
   token: string;
@@ -29,6 +32,11 @@ function el<T extends HTMLElement>(id: string): T {
 function matchRoomCodeInPath(pathname: string): string | null {
   const match = /^\/r\/([A-Za-z0-9]+)$/.exec(pathname);
   return match ? (match[1] ?? null) : null;
+}
+
+/** Quick Play clumps players into the busiest room rather than scattering them across half-empty ones. */
+function byFullest(a: RoomListing, b: RoomListing): number {
+  return b.players - a.players;
 }
 
 function persistReconnect(room: Room): void {
@@ -68,6 +76,9 @@ export function initLobby(onStart: (room: Room) => void): void {
   const spectateNoteEl = el<HTMLParagraphElement>("spectate-note");
   const startBtn = el<HTMLButtonElement>("start-btn");
   const waitingNoteEl = el<HTMLParagraphElement>("waiting-note");
+  const quickPlayBtn = el<HTMLButtonElement>("quick-play-btn");
+  const roomListEl = el<HTMLUListElement>("room-list");
+  const roomListEmptyEl = el<HTMLParagraphElement>("room-list-empty");
 
   // Guards against `onStart` re-firing: once playing, state syncs ~30x/sec and each change re-renders.
   let matchStarted = false;
@@ -104,12 +115,22 @@ export function initLobby(onStart: (room: Room) => void): void {
     }
   }
 
+  /** Nickname and character, shared by every join path (create, join-by-code, Quick Play, room list). */
+  function joinOptions(): { nickname: string; characterId: string } {
+    return {
+      nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
+      characterId: characterSelect.value,
+    };
+  }
+
   function enterRoom(room: Room): void {
     persistReconnect(room);
+    window.clearInterval(roomListTimer);
     formEl.hidden = true;
     roomEl.hidden = false;
     roomCodeEl.textContent = room.roomId;
-    history.replaceState(null, "", `/r/${room.roomId}`);
+    // Keep the query string: the room code goes in the path, but `?debug` has to survive into the match.
+    history.replaceState(null, "", `/r/${room.roomId}${window.location.search}`);
 
     room.onStateChange(() => renderPlayers(room));
     startBtn.addEventListener("click", () => room.send("start"));
@@ -132,17 +153,73 @@ export function initLobby(onStart: (room: Room) => void): void {
   characterSelect.addEventListener("change", renderCharacterOugi);
   renderCharacterOugi();
 
+  /** Renders the public room list, and keeps it fresh so a lobby that just filled up isn't still advertised. */
+  async function refreshRoomList(): Promise<void> {
+    const rooms = await fetchRooms();
+    roomListEl.innerHTML = "";
+    roomListEmptyEl.hidden = rooms.length > 0;
+
+    for (const room of rooms) {
+      const li = document.createElement("li");
+      const label = document.createElement("span");
+      const host = room.hostName || "Someone";
+      const status = room.phase === "lobby" ? "in lobby" : "in a match — you'd spectate";
+      label.textContent = `${host}'s room · ${room.players}/${room.maxPlayers} · ${status}`;
+
+      const joinRoomBtn = document.createElement("button");
+      joinRoomBtn.textContent = "Join";
+      joinRoomBtn.addEventListener("click", () => {
+        showError("");
+        colyseusClient
+          .joinById(room.roomId, joinOptions())
+          .then(enterRoom)
+          .catch(() => showError("That room is no longer joinable."));
+      });
+
+      li.append(label, joinRoomBtn);
+      roomListEl.appendChild(li);
+    }
+  }
+
+  /**
+   * Quick Play: drop into the fullest joinable public lobby, else open a new one. Two players quick-playing at
+   * the same instant can race for the last slot, so a failed join just falls through to the next candidate.
+   */
+  async function quickPlay(): Promise<Room> {
+    const candidates = (await fetchRooms()).filter(isJoinable).sort(byFullest);
+
+    for (const room of candidates) {
+      try {
+        return await colyseusClient.joinById(room.roomId, joinOptions());
+      } catch {
+        // raced by another joiner, or the room just started — try the next one
+      }
+    }
+
+    return colyseusClient.create(ARENA_ROOM_NAME, { ...joinOptions(), isPrivate: false });
+  }
+
   const codeFromUrl = matchRoomCodeInPath(window.location.pathname);
   if (codeFromUrl) joinCodeInput.value = codeFromUrl;
+
+  const roomListTimer = window.setInterval(() => void refreshRoomList(), ROOM_LIST_POLL_MS);
+  void refreshRoomList();
+
+  quickPlayBtn.addEventListener("click", () => {
+    showError("");
+    quickPlayBtn.disabled = true;
+    quickPlay()
+      .then(enterRoom)
+      .catch(() => showError("Could not find or create a room. Is the server running?"))
+      .finally(() => {
+        quickPlayBtn.disabled = false;
+      });
+  });
 
   createBtn.addEventListener("click", () => {
     showError("");
     colyseusClient
-      .create("arena", {
-        nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
-        characterId: characterSelect.value,
-        isPrivate: privateToggle.checked,
-      })
+      .create(ARENA_ROOM_NAME, { ...joinOptions(), isPrivate: privateToggle.checked })
       .then(enterRoom)
       .catch(() => showError("Could not create a room. Is the server running?"));
   });
@@ -156,10 +233,7 @@ export function initLobby(onStart: (room: Room) => void): void {
     }
 
     colyseusClient
-      .joinById(code, {
-        nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
-        characterId: characterSelect.value,
-      })
+      .joinById(code, joinOptions())
       .then(enterRoom)
       .catch(() => showError("Could not join that room — check the code."));
   });

@@ -38,13 +38,53 @@
         color: #ff6b6b;
         min-height: 1.2em;
       }
-      #player-list {
+      #player-list,
+      #room-list {
         list-style: none;
         padding: 0;
       }
-      #player-list li {
+      #player-list li,
+      #room-list li {
         padding: 4px 0;
         border-bottom: 1px solid #333;
+      }
+      #room-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #quick-play-btn {
+        padding: 10px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        background: #ffd166;
+        color: #1a1a2e;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #lobby h2 {
+        font-size: 1rem;
+        margin: 8px 0 0;
+        color: #aaa;
+      }
+      #room-list-empty {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #aaa;
+      }
+      #debug {
+        position: fixed;
+        right: 8px;
+        bottom: 8px;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.75);
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: 0.75rem;
+        line-height: 1.5;
+        white-space: pre;
       }
       #hud {
         position: fixed;
@@ -141,12 +181,16 @@
         <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
         <label>Character <select id="character-select"></select></label>
         <p id="character-ougi"></p>
+        <button id="quick-play-btn">Quick Play</button>
         <label><input id="private-toggle" type="checkbox" /> Private room</label>
         <button id="create-btn">Create room</button>
         <div class="join-row">
           <input id="join-code-input" type="text" placeholder="Room code" />
           <button id="join-btn">Join</button>
         </div>
+        <h2>Open rooms</h2>
+        <ul id="room-list"></ul>
+        <p id="room-list-empty">No public rooms right now — Quick Play will open one.</p>
         <p id="lobby-error"></p>
       </div>
       <div id="lobby-room" hidden>
@@ -173,6 +217,7 @@
         <p id="match-end-note" hidden>Waiting for the host to start a rematch…</p>
       </div>
     </div>
+    <div id="debug" hidden></div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

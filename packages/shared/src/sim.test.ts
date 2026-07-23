@@ -10,6 +10,7 @@ import {
   RESPAWN_DELAY_TICKS,
   RESPAWN_HP_FRACTION,
   RESPAWN_INVULN_TICKS,
+  SIM_DT,
   SP_GAIN_ON_KO,
 } from "./constants.js";
 import { DOJO_ARENA } from "./map.js";
@@ -107,34 +108,37 @@ describe("step", () => {
     expect(state.tick).toBe(2);
   });
 
-  it("damps a dash to a full stop rather than drifting forever", () => {
-    const state = createSimState(["a"]);
-    const events = step(state, [{ type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 }]);
-
-    expect(events).toEqual([{ type: "launch", ninjaId: "a", speed: LAUNCH_SPEED_MAX }]);
-    expect(speedOf(state, "a")).toBeGreaterThan(0);
-
-    for (let i = 0; i < 120; i++) step(state);
-    expect(speedOf(state, "a")).toBe(0);
-  });
-
-  it("ends a dash that damps to rest with budget still left, so nothing is stranded mid-dash", () => {
+  it("dashes at constant speed and lands exactly on the target point, not short of it", () => {
     const state = createSimState(["a"]);
     const ninja = state.ninjas[0]!;
-    ninja.x = 600;
+    ninja.x = 100;
     ninja.y = 100;
 
-    // A full-power dash damps below rest speed a few units short of its reach; that remainder must not stick.
-    for (let i = 0; i < 120; i++) {
-      step(state, i === 0 ? [{ type: "launch", ninjaId: "a", dirX: 0, dirY: -1, power: 1 }] : []);
-    }
+    const events = step(state, [{ type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 }]);
+    expect(events).toEqual([{ type: "launch", ninjaId: "a", speed: LAUNCH_SPEED_MAX }]);
+    // No damping tail: every tick but the last, clipped one covers exactly one timestep of launch speed.
+    expect(ninja.x - 100).toBeCloseTo(LAUNCH_SPEED_MAX * SIM_DT);
+
+    for (let i = 0; i < 120; i++) step(state);
+
+    expect(ninja.x).toBeCloseTo(100 + MAX_DASH_DISTANCE);
+    expect(speedOf(state, "a")).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
+  });
+
+  it("ends a dash left with budget but no velocity, so nothing is stranded mid-dash", () => {
+    const state = createSimState(["a"]);
+    const ninja = state.ninjas[0]!;
+    ninja.dashBudget = 200;
+    ninja.dashLethal = true;
+    ninja.tp = 0;
+    ninja.charging = true;
+
+    step(state);
 
     expect(ninja.dashBudget).toBe(0);
     expect(ninja.dashLethal).toBe(false);
-
     // With the dash properly over, holding to charge refills TP again.
-    ninja.charging = true;
-    step(state);
     expect(ninja.tp).toBeGreaterThan(0);
   });
 

@@ -33,12 +33,21 @@ const INTERP_DELAY_MS = 100;
 /** How long to keep snapshots around; comfortably longer than the interpolation delay. */
 const SNAPSHOT_BUFFER_MS = 1000;
 
+/** Round-trip probe cadence for the debug overlay's latency readout. */
+const PING_INTERVAL_MS = 1000;
+/** Reconciliation snaps below this are rounding, not a misprediction worth counting as a correction. */
+const CORRECTION_THRESHOLD_PX = 2;
+/** Give up waiting for a launch receipt after this long, so a lost ack can't strand prediction off-server forever. */
+const LAUNCH_ACK_TIMEOUT_MS = 1500;
+
 /** Loosely-typed view of the server schema — the client bundle doesn't share the schema classes. */
 interface NinjaView {
   id: string;
   x: number;
   y: number;
   active: boolean;
+  /** True while the server still has this ninja mid-dash — reconciling against it would rubber-band. */
+  dashing: boolean;
   hp: number;
   tp: number;
   charging: boolean;
@@ -60,6 +69,7 @@ interface PlayerView {
 }
 interface ArenaStateView {
   phase: string;
+  tick: number;
   matchTimeRemaining: number;
   suddenDeath: boolean;
   winnerId: string;
@@ -98,6 +108,11 @@ export class GameScene extends Phaser.Scene {
   private accumulatorMs = 0;
   private pendingLocalCommand: LaunchCommand | null = null;
 
+  /** Launches sent vs. launches the server has confirmed applying; unequal means our dash isn't in its world yet. */
+  private launchSeq = 0;
+  private ackedSeq = 0;
+  private launchSentAt = 0;
+
   private snapshots: Snapshot[] = [];
   /** Detects the "finished" → "playing" transition on rematch, so prediction state gets rebuilt from scratch. */
   private lastPhase = "";
@@ -120,6 +135,13 @@ export class GameScene extends Phaser.Scene {
   private readonly matchEndResultsEl = el<HTMLUListElement>("match-end-results");
   private readonly matchEndRematchBtn = el<HTMLButtonElement>("match-end-rematch-btn");
   private readonly matchEndNoteEl = el<HTMLParagraphElement>("match-end-note");
+  private readonly debugEl = el<HTMLDivElement>("debug");
+
+  /** Latency diagnostics (FR-21), off unless toggled with F3 or opened with `?debug`. */
+  private rttMs = 0;
+  private lastStateAt = 0;
+  private corrections = 0;
+  private lastCorrectionPx = 0;
 
   constructor(room: Room) {
     super("game");
@@ -138,6 +160,20 @@ export class GameScene extends Phaser.Scene {
     this.matchEndRematchBtn.addEventListener("click", () => this.room.send("rematch"));
     this.hudOugiBtn.addEventListener("click", () => this.fireOugi());
     this.input.keyboard?.on("keydown-SPACE", () => this.fireOugi());
+
+    this.room.onMessage("pong", (sentAt: number) => {
+      this.rttMs = performance.now() - sentAt;
+    });
+    this.room.onMessage("launchAck", (seq: number) => {
+      this.ackedSeq = Math.max(this.ackedSeq, seq);
+    });
+    this.time.addEvent({
+      delay: PING_INTERVAL_MS,
+      loop: true,
+      callback: () => this.room.send("ping", performance.now()),
+    });
+    this.input.keyboard?.on("keydown-F3", () => this.toggleDebug());
+    if (new URLSearchParams(window.location.search).has("debug")) this.toggleDebug();
 
     this.hudEl.hidden = false;
     this.room.onStateChange(() => this.onServerState());
@@ -161,6 +197,25 @@ export class GameScene extends Phaser.Scene {
 
     this.drawWorld();
     if (this.dragging) this.drawAimLine();
+    if (!this.debugEl.hidden) this.renderDebug();
+  }
+
+  private toggleDebug(): void {
+    this.debugEl.hidden = !this.debugEl.hidden;
+  }
+
+  /** FR-21's diagnostics: what the connection is doing, and how often prediction had to be corrected. */
+  private renderDebug(): void {
+    const stateAge = this.lastStateAt > 0 ? performance.now() - this.lastStateAt : 0;
+    this.debugEl.textContent = [
+      `rtt        ${this.rttMs.toFixed(0)}ms`,
+      `interp     ${INTERP_DELAY_MS}ms`,
+      `tick       ${this.state().tick}`,
+      `state age  ${stateAge.toFixed(0)}ms`,
+      `snapshots  ${this.snapshots.length}`,
+      `launch ack ${this.ackedSeq}/${this.launchSeq}`,
+      `corrections ${this.corrections} (last ${this.lastCorrectionPx.toFixed(1)}px)`,
+    ].join("\n");
   }
 
   private state(): ArenaStateView {
@@ -191,10 +246,15 @@ export class GameScene extends Phaser.Scene {
       this.snapshots = [];
       this.accumulatorMs = 0;
       this.pendingLocalCommand = null;
+      this.corrections = 0;
+      this.lastCorrectionPx = 0;
+      this.launchSeq = 0;
+      this.ackedSeq = 0;
     }
     this.lastPhase = state.phase;
 
     const now = performance.now();
+    this.lastStateAt = now;
     const ninjas = new Map<string, { x: number; y: number; active: boolean }>();
     for (const n of this.state().ninjas) {
       ninjas.set(n.id, { x: n.x, y: n.y, active: n.active });
@@ -316,8 +376,18 @@ export class GameScene extends Phaser.Scene {
     ninja.ougiTicks = mine.ougiTicks;
     ninja.dashRangeMultiplier = mine.dashRangeMultiplier;
 
+    // Snapping is only safe once *both* worlds have finished the dash. Before the ack the server position
+    // predates our launch; while it reports `dashing` the server is mid-dash and we'd be dragged backwards.
+    // Either way the fix is to wait, not to predict harder — the two sims agree on where a dash ends.
+    const awaitingAck =
+      this.ackedSeq < this.launchSeq && performance.now() - this.launchSentAt < LAUNCH_ACK_TIMEOUT_MS;
     const atRest = ninja.dashBudget <= 0 && ninja.vx === 0 && ninja.vy === 0;
-    if (atRest && !this.pendingLocalCommand) {
+    if (atRest && !this.pendingLocalCommand && !awaitingAck && !mine.dashing) {
+      const drift = lengthOf(mine.x - ninja.x, mine.y - ninja.y);
+      if (drift > CORRECTION_THRESHOLD_PX) {
+        this.corrections++;
+        this.lastCorrectionPx = drift;
+      }
       ninja.x = mine.x;
       ninja.y = mine.y;
       // TP is predicted while dashing, but an Ougi can refill it server-side, so resync it at rest.
@@ -375,7 +445,9 @@ export class GameScene extends Phaser.Scene {
 
     // Optimistic: start the dash locally now; the server applies the same command authoritatively.
     this.pendingLocalCommand = command;
-    this.room.send("launch", { dirX: dir.x, dirY: dir.y, power });
+    this.launchSeq++;
+    this.launchSentAt = performance.now();
+    this.room.send("launch", { dirX: dir.x, dirY: dir.y, power, seq: this.launchSeq });
   }
 
   private drawAimLine(): void {

@@ -7,6 +7,12 @@
       "runtimeArgs": ["--filter", "@ougi-arena/client", "dev"],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "server-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@ougi-arena/server", "dev"],
+      "port": 2567
     }
   ]
 }

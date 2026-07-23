@@ -118,6 +118,26 @@ describe("step", () => {
     expect(speedOf(state, "a")).toBe(0);
   });
 
+  it("ends a dash that damps to rest with budget still left, so nothing is stranded mid-dash", () => {
+    const state = createSimState(["a"]);
+    const ninja = state.ninjas[0]!;
+    ninja.x = 600;
+    ninja.y = 100;
+
+    // A full-power dash damps below rest speed a few units short of its reach; that remainder must not stick.
+    for (let i = 0; i < 120; i++) {
+      step(state, i === 0 ? [{ type: "launch", ninjaId: "a", dirX: 0, dirY: -1, power: 1 }] : []);
+    }
+
+    expect(ninja.dashBudget).toBe(0);
+    expect(ninja.dashLethal).toBe(false);
+
+    // With the dash properly over, holding to charge refills TP again.
+    ninja.charging = true;
+    step(state);
+    expect(ninja.tp).toBeGreaterThan(0);
+  });
+
   it("ignores commands for unknown or inactive ninjas", () => {
     const state = createSimState(["a", "b"]);
     state.ninjas[1]!.active = false;
@@ -228,6 +248,7 @@ describe("step", () => {
     b.y = 300;
     a.vx = LAUNCH_SPEED_MAX;
     a.dashBudget = MAX_DASH_DISTANCE;
+    a.dashLethal = true;
 
     let ko: Extract<ReturnType<typeof step>[number], { type: "ninjaKO" }> | undefined;
     for (let i = 0; i < 5 && !ko; i++) {
@@ -250,6 +271,7 @@ describe("step", () => {
     b.y = 300;
     a.vx = LAUNCH_SPEED_MAX;
     a.dashBudget = MAX_DASH_DISTANCE;
+    a.dashLethal = true;
     b.invulnerableTicks = 60;
 
     let sawKO = false;

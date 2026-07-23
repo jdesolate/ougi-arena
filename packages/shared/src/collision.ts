@@ -48,6 +48,7 @@ export function stopAtContact(ninja: NinjaState, contact: Contact): number {
   ninja.vx = 0;
   ninja.vy = 0;
   ninja.dashBudget = 0;
+  ninja.dashLethal = false;
   return impact;
 }
 

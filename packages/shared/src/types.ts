@@ -13,6 +13,8 @@ export interface Aabb {
 
 export interface NinjaState {
   id: string;
+  /** Picks the Ougi this ninja fires; base stats are identical across characters. */
+  characterId: string;
   x: number;
   y: number;
   vx: number;
@@ -20,6 +22,8 @@ export interface NinjaState {
   radius: number;
   /** World units left to travel in the current dash; movement is clipped to this so a launch stops exactly where its drag reached, never overshooting. */
   dashBudget: number;
+  /** True only for a player-launched dash — knockback moves a ninja on the same budget but must not shatter anyone. */
+  dashLethal: boolean;
   /** Inactive ninjas (KO'd, spectating, disconnected) are skipped entirely by the sim. */
   active: boolean;
   hp: number;
@@ -27,8 +31,12 @@ export interface NinjaState {
   tp: number;
   /** True while the player is pressing-and-holding this ninja; TP only refills during this window. */
   charging: boolean;
-  /** Ougi meter; not yet consumable, S7 adds the effects it triggers. */
+  /** Ougi meter; charges by dealing damage and is spent in full to fire this character's Ougi. */
   sp: number;
+  /** Ticks left of a duration Ougi; 0 when none is running. */
+  ougiTicks: number;
+  /** Generic dash-reach buff an Ougi may set; 1 normally. Ougi buffs live in fields like this so a KO can clear them. */
+  dashRangeMultiplier: number;
   /** Ticks left of post-respawn invulnerability; 0 when vulnerable. */
   invulnerableTicks: number;
   /** Ticks left before a KO'd ninja respawns; 0 while alive. */
@@ -69,10 +77,18 @@ export interface LaunchCommand {
   power: number;
 }
 
-export type SimCommand = LaunchCommand;
+/** Fire this ninja's Ougi. Ignored unless the meter is full; the server is the only thing that issues it. */
+export interface OugiCommand {
+  type: "ougi";
+  ninjaId: string;
+}
+
+export type SimCommand = LaunchCommand | OugiCommand;
 
 export type SimEvent =
   | { type: "launch"; ninjaId: string; speed: number }
+  | { type: "ougiFired"; ninjaId: string; ougiId: string }
+  | { type: "ninjaDamaged"; targetId: string; sourceId: string; amount: number }
   | { type: "ninjaHit"; aId: string; bId: string; impact: number }
   | { type: "wallHit"; ninjaId: string; impact: number }
   | { type: "obstacleHit"; ninjaId: string; obstacleId: number; impact: number; damage: number }

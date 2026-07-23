@@ -1,4 +1,5 @@
 import type { Room } from "colyseus.js";
+import { CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
 import { colyseusClient } from "./network/colyseus.js";
 
 const NICKNAME_MAX_LENGTH = 16;
@@ -53,6 +54,8 @@ export function initLobby(onStart: (room: Room) => void): void {
   const formEl = el<HTMLDivElement>("lobby-form");
   const roomEl = el<HTMLDivElement>("lobby-room");
   const nicknameInput = el<HTMLInputElement>("nickname-input");
+  const characterSelect = el<HTMLSelectElement>("character-select");
+  const characterOugiEl = el<HTMLParagraphElement>("character-ougi");
   const privateToggle = el<HTMLInputElement>("private-toggle");
   const createBtn = el<HTMLButtonElement>("create-btn");
   const joinCodeInput = el<HTMLInputElement>("join-code-input");
@@ -110,6 +113,20 @@ export function initLobby(onStart: (room: Room) => void): void {
     });
   }
 
+  // Placeholder picker until S10's character-select screen; a character is only its Ougi for now.
+  for (const character of CHARACTERS) {
+    const option = document.createElement("option");
+    option.value = character.id;
+    option.textContent = character.name;
+    characterSelect.appendChild(option);
+  }
+  function renderCharacterOugi(): void {
+    const ougi = ougiForCharacter(characterSelect.value);
+    characterOugiEl.textContent = `${ougi.name} — ${ougi.description}`;
+  }
+  characterSelect.addEventListener("change", renderCharacterOugi);
+  renderCharacterOugi();
+
   const codeFromUrl = matchRoomCodeInPath(window.location.pathname);
   if (codeFromUrl) joinCodeInput.value = codeFromUrl;
 
@@ -118,6 +135,7 @@ export function initLobby(onStart: (room: Room) => void): void {
     colyseusClient
       .create("arena", {
         nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
+        characterId: characterSelect.value,
         isPrivate: privateToggle.checked,
       })
       .then(enterRoom)
@@ -133,7 +151,10 @@ export function initLobby(onStart: (room: Room) => void): void {
     }
 
     colyseusClient
-      .joinById(code, { nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH) })
+      .joinById(code, {
+        nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
+        characterId: characterSelect.value,
+      })
       .then(enterRoom)
       .catch(() => showError("Could not join that room — check the code."));
   });

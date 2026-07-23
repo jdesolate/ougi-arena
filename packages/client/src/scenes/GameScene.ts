@@ -2,7 +2,6 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
   DOJO_ARENA,
-  MAX_DASH_DISTANCE,
   MAX_HP,
   MAX_SP,
   MAX_TP,
@@ -12,6 +11,8 @@ import {
   clamp,
   createSimState,
   lengthOf,
+  maxDashDistanceOf,
+  ougiForCharacter,
   step,
   type LaunchCommand,
   type SimState,
@@ -42,6 +43,8 @@ interface NinjaView {
   tp: number;
   charging: boolean;
   sp: number;
+  ougiTicks: number;
+  dashRangeMultiplier: number;
   invulnerableTicks: number;
 }
 interface ObstacleView {
@@ -109,6 +112,7 @@ export class GameScene extends Phaser.Scene {
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
   private readonly hudTpFillEl = el<HTMLDivElement>("hud-tp-fill");
   private readonly hudSpFillEl = el<HTMLDivElement>("hud-sp-fill");
+  private readonly hudOugiBtn = el<HTMLButtonElement>("hud-ougi-btn");
   private readonly hudScoreboardEl = el<HTMLUListElement>("hud-scoreboard");
   private readonly matchEndEl = el<HTMLDivElement>("match-end");
   private readonly matchEndTitleEl = el<HTMLHeadingElement>("match-end-title");
@@ -131,6 +135,8 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerup", this.onPointerUp, this);
 
     this.matchEndRematchBtn.addEventListener("click", () => this.room.send("rematch"));
+    this.hudOugiBtn.addEventListener("click", () => this.fireOugi());
+    this.input.keyboard?.on("keydown-SPACE", () => this.fireOugi());
 
     this.hudEl.hidden = false;
     this.room.onStateChange(() => this.onServerState());
@@ -158,6 +164,13 @@ export class GameScene extends Phaser.Scene {
 
   private state(): ArenaStateView {
     return this.room.state as unknown as ArenaStateView;
+  }
+
+  /** Ougis run server-side only — nothing is predicted locally, so the effect lands a round trip later. */
+  private fireOugi(): void {
+    const mine = this.serverNinja();
+    if (!mine || !mine.active || mine.sp < MAX_SP) return;
+    this.room.send("ougi");
   }
 
   private serverNinja(): NinjaView | undefined {
@@ -211,6 +224,13 @@ export class GameScene extends Phaser.Scene {
     this.hudTpFillEl.style.width = `${clamp(((mine?.tp ?? 0) / MAX_TP) * 100, 0, 100)}%`;
     this.hudSpFillEl.style.width = `${clamp(((mine?.sp ?? 0) / MAX_SP) * 100, 0, 100)}%`;
 
+    const characterId = state.players.get(this.localId)?.characterId ?? "";
+    const ougi = ougiForCharacter(characterId);
+    const ready = (mine?.sp ?? 0) >= MAX_SP;
+    this.hudOugiBtn.textContent = ready ? `${ougi.name} — Space` : ougi.name;
+    this.hudOugiBtn.disabled = !ready || !mine?.active;
+    this.hudOugiBtn.title = ougi.description;
+
     this.hudScoreboardEl.innerHTML = "";
     const rows = state.ninjas
       .map((n) => ({ id: n.id, player: state.players.get(n.id) }))
@@ -256,7 +276,8 @@ export class GameScene extends Phaser.Scene {
     const mine = this.serverNinja();
     if (!mine) return;
 
-    this.localSim = createSimState([this.localId], DOJO_ARENA);
+    const characterId = this.state().players.get(this.localId)?.characterId;
+    this.localSim = createSimState([this.localId], DOJO_ARENA, characterId ? [characterId] : []);
     const ninja = this.localNinja();
     if (ninja) {
       ninja.x = mine.x;
@@ -290,10 +311,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     ninja.active = mine.active;
+    // Ougi buffs are server-owned, so take them straight from the wire rather than predicting them.
+    ninja.ougiTicks = mine.ougiTicks;
+    ninja.dashRangeMultiplier = mine.dashRangeMultiplier;
+
     const atRest = ninja.dashBudget <= 0 && ninja.vx === 0 && ninja.vy === 0;
     if (atRest && !this.pendingLocalCommand) {
       ninja.x = mine.x;
       ninja.y = mine.y;
+      // TP is predicted while dashing, but an Ougi can refill it server-side, so resync it at rest.
+      ninja.tp = mine.tp;
     }
   }
 
@@ -366,7 +393,7 @@ export class GameScene extends Phaser.Scene {
 
     // Launch preview: exactly where the dash will land, so the arrow shows the real destination, not just a direction.
     // Capped by current TP too — as the hold charges TP, the preview grows in real time to match.
-    const previewLen = Math.min(power * MAX_DASH_DISTANCE, ninja.tp);
+    const previewLen = Math.min(power * maxDashDistanceOf(ninja), ninja.tp);
     const dir = snapToCardinal(-dragX, -dragY);
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;
@@ -446,6 +473,12 @@ export class GameScene extends Phaser.Scene {
       g.fillCircle(pos.x, pos.y, NINJA_RADIUS);
       g.lineStyle(2, skin.outlineColor, alpha);
       g.strokeCircle(pos.x, pos.y, NINJA_RADIUS);
+
+      // A running duration Ougi gets a pulsing aura so opponents can see the buff is live.
+      if (serverNinja.ougiTicks > 0) {
+        g.lineStyle(3, 0xffd166, 0.8);
+        g.strokeCircle(pos.x, pos.y, NINJA_RADIUS + 6 + 3 * Math.sin(performance.now() / 100));
+      }
 
       const hpFrac = clamp(serverNinja.hp / MAX_HP, 0, 1);
       const barW = NINJA_RADIUS * 2;

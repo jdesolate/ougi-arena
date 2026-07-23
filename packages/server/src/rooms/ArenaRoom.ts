@@ -1,13 +1,15 @@
 import { Room, Client } from "@colyseus/core";
 import { Schema, ArraySchema, MapSchema, type } from "@colyseus/schema";
 import {
+  CHARACTERS,
+  DEFAULT_CHARACTER_ID,
   DOJO_ARENA,
   MATCH_DURATION_TICKS,
   SIM_DT,
   SIM_TICK_RATE_HZ,
   createSimState,
   step,
-  type LaunchCommand,
+  type SimCommand,
   type SimState,
 } from "@ougi-arena/shared";
 
@@ -42,7 +44,7 @@ interface ChargeMessage {
 
 export class PlayerState extends Schema {
   @type("string") nickname = "";
-  @type("string") characterId = "default";
+  @type("string") characterId = DEFAULT_CHARACTER_ID;
   @type("boolean") isHost = false;
   /** Mid-match joiners (or joiners past the active-player cap) watch until the next match. */
   @type("boolean") spectating = false;
@@ -60,6 +62,10 @@ export class NinjaSchema extends Schema {
   @type("number") tp = 0;
   @type("boolean") charging = false;
   @type("number") sp = 0;
+  /** Non-zero while a duration Ougi is running, so the client can show it's active. */
+  @type("number") ougiTicks = 0;
+  /** Synced so the client's aim preview reflects an Ougi reach buff instead of re-deriving it. */
+  @type("number") dashRangeMultiplier = 1;
   @type("number") invulnerableTicks = 0;
 }
 
@@ -92,8 +98,8 @@ export class ArenaRoom extends Room<LobbyState> {
   private joinOrder: string[] = [];
 
   private sim: SimState | null = null;
-  /** Launches received since the last tick; drained into the next fixed step. */
-  private launchQueue: LaunchCommand[] = [];
+  /** Launches and Ougi fires received since the last tick; drained into the next fixed step. */
+  private commandQueue: SimCommand[] = [];
   private accumulatorMs = 0;
   /** Source of truth for the match clock; `state.matchTimeRemaining` is just its seconds display. */
   private matchTicksRemaining = 0;
@@ -104,13 +110,14 @@ export class ArenaRoom extends Room<LobbyState> {
     this.onMessage("start", (client) => this.handleStart(client));
     this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
     this.onMessage("charge", (client, message: ChargeMessage) => this.handleCharge(client, message));
+    this.onMessage("ougi", (client) => this.handleOugi(client));
     this.onMessage("rematch", (client) => this.handleRematch(client));
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
     const player = new PlayerState();
     player.nickname = sanitizeNickname(options.nickname);
-    player.characterId = options.characterId ?? "default";
+    player.characterId = sanitizeCharacterId(options.characterId);
     player.spectating = this.state.phase === "playing" || this.activePlayerCount() >= MAX_ACTIVE_PLAYERS;
     player.isHost = !this.hasHost();
 
@@ -152,7 +159,13 @@ export class ArenaRoom extends Room<LobbyState> {
     const power = Number(message?.power);
     if (!Number.isFinite(dirX) || !Number.isFinite(dirY) || !Number.isFinite(power)) return;
 
-    this.launchQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
+    this.commandQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
+  }
+
+  /** The sim ignores this unless the meter is actually full, so no server-side SP check is needed here. */
+  private handleOugi(client: Client): void {
+    if (this.state.phase !== "playing") return;
+    this.commandQueue.push({ type: "ougi", ninjaId: client.sessionId });
   }
 
   /** Continuous hold state, not a queued command — TP accrues tick over tick for as long as this stays true. */
@@ -170,8 +183,10 @@ export class ArenaRoom extends Room<LobbyState> {
       return player !== undefined && !player.spectating;
     });
 
-    this.sim = createSimState(activeIds, DOJO_ARENA);
-    this.launchQueue = [];
+    const characterIds = activeIds.map((id) => this.state.players.get(id)?.characterId ?? DEFAULT_CHARACTER_ID);
+
+    this.sim = createSimState(activeIds, DOJO_ARENA, characterIds);
+    this.commandQueue = [];
     this.accumulatorMs = 0;
     this.matchTicksRemaining = MATCH_DURATION_TICKS;
 
@@ -188,6 +203,8 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.tp = ninja.tp;
       schema.charging = ninja.charging;
       schema.sp = ninja.sp;
+      schema.ougiTicks = ninja.ougiTicks;
+      schema.dashRangeMultiplier = ninja.dashRangeMultiplier;
       schema.invulnerableTicks = ninja.invulnerableTicks;
       this.state.ninjas.push(schema);
     }
@@ -214,8 +231,8 @@ export class ArenaRoom extends Room<LobbyState> {
     let steps = 0;
     let suddenDeathKO = false;
     while (this.accumulatorMs >= SIM_DT_MS && steps < MAX_STEPS_PER_TICK) {
-      // Queued launches apply on the first step only, so a catch-up burst can't fire the same dash repeatedly.
-      const commands = steps === 0 ? this.launchQueue : [];
+      // Queued commands apply on the first step only, so a catch-up burst can't fire the same dash repeatedly.
+      const commands = steps === 0 ? this.commandQueue : [];
       const events = step(this.sim, commands);
       for (const event of events) {
         if (event.type !== "ninjaKO") continue;
@@ -226,7 +243,7 @@ export class ArenaRoom extends Room<LobbyState> {
       this.accumulatorMs -= SIM_DT_MS;
       steps++;
     }
-    this.launchQueue = [];
+    this.commandQueue = [];
 
     this.syncState();
 
@@ -282,6 +299,8 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.tp = ninja.tp;
       schema.charging = ninja.charging;
       schema.sp = ninja.sp;
+      schema.ougiTicks = ninja.ougiTicks;
+      schema.dashRangeMultiplier = ninja.dashRangeMultiplier;
       schema.invulnerableTicks = ninja.invulnerableTicks;
     }
 
@@ -336,4 +355,8 @@ export class ArenaRoom extends Room<LobbyState> {
 function sanitizeNickname(raw: string | undefined): string {
   const trimmed = (raw ?? "").trim();
   return (trimmed || "Ninja").slice(0, NICKNAME_MAX_LENGTH);
+}
+
+function sanitizeCharacterId(raw: string | undefined): string {
+  return CHARACTERS.some((c) => c.id === raw) ? raw! : DEFAULT_CHARACTER_ID;
 }

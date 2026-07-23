@@ -10,7 +10,9 @@ export const DEFAULT_SKIN: NinjaSkin = {
 };
 
 const SKINS_BY_CHARACTER: Record<string, NinjaSkin> = {
-  default: DEFAULT_SKIN,
+  ember: DEFAULT_SKIN,
+  gale: { bodyColor: 0x4fc3f7, outlineColor: 0xffffff },
+  shade: { bodyColor: 0xb388ff, outlineColor: 0xffffff },
 };
 
 export function skinFor(characterId: string): NinjaSkin {

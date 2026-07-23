@@ -5,7 +5,6 @@ import {
   LINEAR_DAMPING_PER_TICK,
   MAX_DASH_DISTANCE,
   MAX_HP,
-  MAX_SP,
   MAX_TP,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
@@ -13,15 +12,15 @@ import {
   OBSTACLE_DAMAGE_PER_IMPACT_SPEED,
   OBSTACLE_HP,
   REST_SPEED,
-  RESPAWN_DELAY_TICKS,
   RESPAWN_HP_FRACTION,
   RESPAWN_INVULN_TICKS,
   SIM_DT,
-  SP_GAIN_ON_KO,
   TP_CHARGE_PER_TICK,
 } from "./constants.js";
+import { isVulnerable, shatterNinja } from "./damage.js";
 import { clamp, lengthOf } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
+import { DEFAULT_CHARACTER_ID, fireOugi, maxTpOf, tickOugi } from "./ougi.js";
 import type {
   ArenaMap,
   LaunchCommand,
@@ -38,20 +37,28 @@ export function spawnPointFor(map: ArenaMap, index: number): Vec2 {
   return spawn ? { x: spawn.x, y: spawn.y } : { x: map.width / 2, y: map.height / 2 };
 }
 
-export function createNinja(id: string, spawn: Vec2): NinjaState {
+export function createNinja(
+  id: string,
+  spawn: Vec2,
+  characterId: string = DEFAULT_CHARACTER_ID,
+): NinjaState {
   return {
     id,
+    characterId,
     x: spawn.x,
     y: spawn.y,
     vx: 0,
     vy: 0,
     radius: NINJA_RADIUS,
     dashBudget: 0,
+    dashLethal: false,
     active: true,
     hp: MAX_HP,
     tp: MAX_TP,
     charging: false,
     sp: 0,
+    ougiTicks: 0,
+    dashRangeMultiplier: 1,
     invulnerableTicks: 0,
     respawnTicks: 0,
   };
@@ -89,11 +96,18 @@ function createObstacles(map: ArenaMap): ObstacleState[] {
   }));
 }
 
-export function createSimState(ninjaIds: string[], map: ArenaMap = DOJO_ARENA): SimState {
+/** `characterIds` is index-aligned with `ninjaIds`; anything missing falls back to the default character. */
+export function createSimState(
+  ninjaIds: string[],
+  map: ArenaMap = DOJO_ARENA,
+  characterIds: readonly string[] = [],
+): SimState {
   return {
     tick: 0,
     map,
-    ninjas: ninjaIds.map((id, index) => createNinja(id, spawnPointFor(map, index))),
+    ninjas: ninjaIds.map((id, index) =>
+      createNinja(id, spawnPointFor(map, index), characterIds[index] ?? DEFAULT_CHARACTER_ID),
+    ),
     obstacles: createObstacles(map),
   };
 }
@@ -103,6 +117,11 @@ export function resetObstacles(state: SimState): void {
   state.obstacles = createObstacles(state.map);
 }
 
+/** Full-power dash reach, including any Ougi reach buff. The client's aim preview reads this too. */
+export function maxDashDistanceOf(ninja: NinjaState): number {
+  return MAX_DASH_DISTANCE * ninja.dashRangeMultiplier;
+}
+
 /** Shared by the authoritative tick and the client's optimistic launch, so both produce the same velocity. */
 export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
   const len = lengthOf(command.dirX, command.dirY);
@@ -110,13 +129,14 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
 
   const power = clamp(command.power, 0, 1);
   // TP is spent 1:1 per world unit dashed, so a drained ninja's dash falls short of a full-power reach.
-  const distance = Math.min(power * MAX_DASH_DISTANCE, ninja.tp);
+  const distance = Math.min(power * maxDashDistanceOf(ninja), ninja.tp);
   if (distance <= 0) return 0;
 
   const speed = LAUNCH_SPEED_MIN + (LAUNCH_SPEED_MAX - LAUNCH_SPEED_MIN) * power;
   ninja.vx = (command.dirX / len) * speed;
   ninja.vy = (command.dirY / len) * speed;
   ninja.dashBudget = distance;
+  ninja.dashLethal = true;
   ninja.tp -= distance;
   ninja.charging = false;
   return speed;
@@ -127,14 +147,20 @@ function integrate(ninja: NinjaState): void {
   ninja.vx *= LINEAR_DAMPING_PER_TICK;
   ninja.vy *= LINEAR_DAMPING_PER_TICK;
 
+  // A dash that damps below rest speed is finished even with budget left; leaving that budget behind would
+  // strand the ninja mid-dash forever — unable to recharge TP, and still lethal to anyone it touched.
   if (lengthOf(ninja.vx, ninja.vy) < REST_SPEED) {
     ninja.vx = 0;
     ninja.vy = 0;
+    ninja.dashBudget = 0;
+    ninja.dashLethal = false;
+    return;
   }
 
   if (ninja.dashBudget <= 0) {
     ninja.vx = 0;
     ninja.vy = 0;
+    ninja.dashLethal = false;
     return;
   }
 
@@ -147,6 +173,7 @@ function integrate(ninja: NinjaState): void {
     dx *= scale;
     dy *= scale;
     ninja.dashBudget = 0;
+    ninja.dashLethal = false;
     ninja.vx = 0;
     ninja.vy = 0;
   } else {
@@ -209,6 +236,12 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
   for (const command of commands) {
     const ninja = state.ninjas.find((n) => n.id === command.ninjaId);
     if (!ninja || !ninja.active) continue;
+
+    if (command.type === "ougi") {
+      fireOugi(state, ninja, events);
+      continue;
+    }
+
     const speed = applyLaunch(ninja, command);
     if (speed > 0) events.push({ type: "launch", ninjaId: ninja.id, speed });
   }
@@ -234,9 +267,9 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
       // A live dash shatters (instant-KOs) whoever it reaches instead of bouncing off them, and carries on
       // through to its target point. If both are mid-dash, `a` (lower index — fixed iteration order) wins;
       // an invulnerable or already-KO'd target can't be shattered, so contact falls through to a soft bump.
-      if (a.dashBudget > 0 && b.invulnerableTicks <= 0 && b.respawnTicks <= 0) {
+      if (a.dashLethal && isVulnerable(b)) {
         shatterNinja(a, b, events);
-      } else if (b.dashBudget > 0 && a.invulnerableTicks <= 0 && a.respawnTicks <= 0) {
+      } else if (b.dashLethal && isVulnerable(a)) {
         shatterNinja(b, a, events);
       } else {
         const impact = resolveNinjaPair(a, b, NINJA_RESTITUTION);
@@ -249,9 +282,10 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
 
   for (const ninja of state.ninjas) {
     if (ninja.active) {
+      tickOugi(state, ninja, events);
       // TP only refills while the player is actively holding their ninja — never passively, and never mid-dash.
       if (ninja.charging && ninja.dashBudget <= 0) {
-        ninja.tp = Math.min(MAX_TP, ninja.tp + TP_CHARGE_PER_TICK);
+        ninja.tp = Math.min(maxTpOf(ninja), ninja.tp + TP_CHARGE_PER_TICK);
       }
       if (ninja.invulnerableTicks > 0) ninja.invulnerableTicks--;
       continue;
@@ -266,20 +300,6 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
   return events;
 }
 
-/** `attacker` passes through untouched; `target` is instantly KO'd and starts its respawn countdown. */
-function shatterNinja(attacker: NinjaState, target: NinjaState, events: SimEvent[]): void {
-  target.hp = 0;
-  target.active = false;
-  target.vx = 0;
-  target.vy = 0;
-  target.dashBudget = 0;
-  target.charging = false;
-  target.invulnerableTicks = 0;
-  target.respawnTicks = RESPAWN_DELAY_TICKS;
-  attacker.sp = Math.min(MAX_SP, attacker.sp + SP_GAIN_ON_KO);
-  events.push({ type: "ninjaKO", targetId: target.id, killerId: attacker.id });
-}
-
 function respawnNinja(state: SimState, ninja: NinjaState): void {
   const spawn = bestRespawnPoint(state, ninja.id);
   ninja.x = spawn.x;
@@ -287,6 +307,7 @@ function respawnNinja(state: SimState, ninja: NinjaState): void {
   ninja.vx = 0;
   ninja.vy = 0;
   ninja.dashBudget = 0;
+  ninja.dashLethal = false;
   ninja.hp = MAX_HP * RESPAWN_HP_FRACTION;
   ninja.tp = MAX_TP;
   ninja.charging = false;

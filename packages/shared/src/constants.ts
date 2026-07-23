@@ -30,9 +30,25 @@ export const TP_CHARGE_PER_TICK = MAX_TP / (TP_CHARGE_SECONDS * SIM_TICK_RATE_HZ
 /** Ninja hit points; a dash that shatters an enemy sets this straight to 0 rather than chipping it. */
 export const MAX_HP = 100;
 
-/** Ougi meter; fills only from landing KOs until S7 adds real damage-dealing effects. */
+/** Ougi meter; charges by dealing damage, and a KO is worth the same as half a health bar of chip damage. */
 export const MAX_SP = 100;
 export const SP_GAIN_ON_KO = 50;
+export const SP_PER_DAMAGE = 0.5;
+
+/** Shockwave (Ember): instant radial burst, damage falling off linearly to nothing at the rim. */
+export const SHOCKWAVE_RADIUS = 220;
+export const SHOCKWAVE_MAX_DAMAGE = 60;
+/** How far the burst flings a caught ninja at the epicentre; also scaled by the falloff. */
+export const SHOCKWAVE_KNOCKBACK_DISTANCE = 140;
+export const SHOCKWAVE_KNOCKBACK_SPEED = 520;
+
+/** Surge (Gale): dash reach and TP tank both scale by this for the duration, and TP stays topped up. */
+export const SURGE_DURATION_SECONDS = 5;
+export const SURGE_DURATION_TICKS = SURGE_DURATION_SECONDS * SIM_TICK_RATE_HZ;
+export const SURGE_DASH_MULTIPLIER = 2;
+
+/** Cross Slash (Shade): four instant cardinal beams, each stopping at the first wall or live obstacle it cleaves. */
+export const CROSS_SLASH_LANE_HALF_WIDTH = 14;
 
 /** KO'd ninjas sit out this long before respawning, then are invulnerable for a further window. */
 export const RESPAWN_DELAY_SECONDS = 3;

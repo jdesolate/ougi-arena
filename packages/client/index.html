@@ -78,6 +78,25 @@
       #hud-sp-fill {
         background: #ffd166;
       }
+      #hud-ougi-btn {
+        padding: 4px 10px;
+        font-size: 0.85rem;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: #2a2a44;
+        color: #888;
+      }
+      #hud-ougi-btn:not([disabled]) {
+        background: #ffd166;
+        color: #1a1a2e;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      #character-ougi {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #aaa;
+      }
       #hud-scoreboard {
         list-style: none;
         display: flex;
@@ -120,6 +139,8 @@
       <h1>Ougi Arena</h1>
       <div id="lobby-form">
         <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
+        <label>Character <select id="character-select"></select></label>
+        <p id="character-ougi"></p>
         <label><input id="private-toggle" type="checkbox" /> Private room</label>
         <button id="create-btn">Create room</button>
         <div class="join-row">
@@ -140,6 +161,7 @@
       <span id="hud-timer">2:00</span>
       <div class="meter-bar"><div id="hud-tp-fill" class="meter-fill" style="width: 100%"></div></div>
       <div class="meter-bar"><div id="hud-sp-fill" class="meter-fill" style="width: 0%"></div></div>
+      <button id="hud-ougi-btn" disabled>Ougi</button>
       <ul id="hud-scoreboard"></ul>
     </div>
     <div id="match-end" hidden>

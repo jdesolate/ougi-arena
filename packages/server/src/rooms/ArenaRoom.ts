@@ -243,7 +243,9 @@ export class ArenaRoom extends Room<LobbyState> {
       this.accumulatorMs -= SIM_DT_MS;
       steps++;
     }
-    this.commandQueue = [];
+    // Only the first step consumes the queue, so clear it only if a step actually ran — a callback that
+    // arrives before a full timestep has accrued must leave those commands queued, not drop them.
+    if (steps > 0) this.commandQueue = [];
 
     this.syncState();
 

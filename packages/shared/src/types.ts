@@ -22,6 +22,15 @@ export interface NinjaState {
   dashBudget: number;
   /** Inactive ninjas (KO'd, spectating, disconnected) are skipped entirely by the sim. */
   active: boolean;
+  hp: number;
+  /** Also the hard cap on dash range — a launch costs 1 TP per world unit dashed. */
+  tp: number;
+  /** Ougi meter; not yet consumable, S7 adds the effects it triggers. */
+  sp: number;
+  /** Ticks left of post-respawn invulnerability; 0 when vulnerable. */
+  invulnerableTicks: number;
+  /** Ticks left before a KO'd ninja respawns; 0 while alive. */
+  respawnTicks: number;
 }
 
 export interface ObstacleState extends Aabb {
@@ -65,4 +74,5 @@ export type SimEvent =
   | { type: "ninjaHit"; aId: string; bId: string; impact: number }
   | { type: "wallHit"; ninjaId: string; impact: number }
   | { type: "obstacleHit"; ninjaId: string; obstacleId: number; impact: number; damage: number }
-  | { type: "obstacleDestroyed"; ninjaId: string; obstacleId: number };
+  | { type: "obstacleDestroyed"; ninjaId: string; obstacleId: number }
+  | { type: "ninjaKO"; targetId: string; killerId: string };

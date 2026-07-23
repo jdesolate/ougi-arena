@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   LAUNCH_SPEED_MAX,
-  LAUNCH_SPEED_MIN,
   MAX_DASH_DISTANCE,
+  MAX_HP,
+  MAX_TP,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
   OBSTACLE_HP,
+  RESPAWN_DELAY_TICKS,
+  RESPAWN_HP_FRACTION,
+  RESPAWN_INVULN_TICKS,
+  SP_GAIN_ON_KO,
 } from "./constants.js";
 import { DOJO_ARENA } from "./map.js";
 import { applyLaunch, createNinja, createSimState, resetObstacles, spawnPointFor, step } from "./sim.js";
@@ -60,14 +65,37 @@ describe("applyLaunch", () => {
   it("clamps power outside 0..1 and ignores a zero-length drag", () => {
     const ninja = createNinja("a", { x: 0, y: 0 });
 
-    applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: -3 });
-    expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MIN);
+    // Power clamps to 0, so distance clamps to 0 too — that's the same "nothing happens" case as a
+    // zero-length drag below, so vx stays untouched rather than getting a moot LAUNCH_SPEED_MIN.
+    expect(applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: -3 })).toBe(0);
+    expect(ninja.vx).toBe(0);
 
     applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 9 });
     expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX);
 
     expect(applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 0, dirY: 0, power: 1 })).toBe(0);
     expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX);
+  });
+
+  it("caps dash distance and TP spend to whatever TP remains", () => {
+    const ninja = createNinja("a", { x: 0, y: 0 });
+    ninja.tp = 100;
+
+    const speed = applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 });
+
+    expect(speed).toBeCloseTo(LAUNCH_SPEED_MAX);
+    expect(ninja.dashBudget).toBeCloseTo(100);
+    expect(ninja.tp).toBeCloseTo(0);
+  });
+
+  it("refuses to launch a ninja with no TP left", () => {
+    const ninja = createNinja("a", { x: 0, y: 0 });
+    ninja.tp = 0;
+
+    const speed = applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 });
+
+    expect(speed).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
   });
 });
 
@@ -191,7 +219,7 @@ describe("step", () => {
     expect(obstacle.hp).toBe(OBSTACLE_HP);
   });
 
-  it("knocks back the ninja that gets hit", () => {
+  it("a live dash shatters the ninja it reaches instead of bouncing off it", () => {
     const state = createSimState(["a", "b"]);
     const [a, b] = state.ninjas as [(typeof state.ninjas)[number], (typeof state.ninjas)[number]];
     a.x = 300;
@@ -201,14 +229,64 @@ describe("step", () => {
     a.vx = LAUNCH_SPEED_MAX;
     a.dashBudget = MAX_DASH_DISTANCE;
 
-    let hit: Extract<ReturnType<typeof step>[number], { type: "ninjaHit" }> | undefined;
-    for (let i = 0; i < 5 && !hit; i++) {
-      hit = step(state).find((e) => e.type === "ninjaHit");
+    let ko: Extract<ReturnType<typeof step>[number], { type: "ninjaKO" }> | undefined;
+    for (let i = 0; i < 5 && !ko; i++) {
+      ko = step(state).find((e) => e.type === "ninjaKO");
     }
 
-    expect(hit).toBeDefined();
-    expect(b.vx).toBeGreaterThan(0);
-    expect(b.x - a.x).toBeGreaterThanOrEqual(NINJA_RADIUS * 2);
+    expect(ko).toEqual({ type: "ninjaKO", targetId: "b", killerId: "a" });
+    expect(b.active).toBe(false);
+    expect(b.hp).toBe(0);
+    expect(b.respawnTicks).toBeGreaterThan(0);
+    expect(a.sp).toBe(SP_GAIN_ON_KO);
+  });
+
+  it("an invulnerable ninja can't be shattered", () => {
+    const state = createSimState(["a", "b"]);
+    const [a, b] = state.ninjas as [(typeof state.ninjas)[number], (typeof state.ninjas)[number]];
+    a.x = 300;
+    a.y = 300;
+    b.x = 300 + NINJA_RADIUS * 2 + 20;
+    b.y = 300;
+    a.vx = LAUNCH_SPEED_MAX;
+    a.dashBudget = MAX_DASH_DISTANCE;
+    b.invulnerableTicks = 60;
+
+    let sawKO = false;
+    for (let i = 0; i < 5; i++) {
+      if (step(state).some((e) => e.type === "ninjaKO")) sawKO = true;
+    }
+
+    expect(sawKO).toBe(false);
+    expect(b.active).toBe(true);
+  });
+
+  it("regenerates TP over time up to the max", () => {
+    const state = createSimState(["a"]);
+    const ninja = state.ninjas[0]!;
+    ninja.tp = 0;
+
+    step(state);
+    expect(ninja.tp).toBeGreaterThan(0);
+
+    for (let i = 0; i < 1000; i++) step(state);
+    expect(ninja.tp).toBe(MAX_TP);
+  });
+
+  it("respawns a KO'd ninja after the delay with reduced HP and fresh invulnerability", () => {
+    const state = createSimState(["a", "b"]);
+    const ninja = state.ninjas[1]!;
+    ninja.active = false;
+    ninja.hp = 0;
+    ninja.respawnTicks = RESPAWN_DELAY_TICKS;
+
+    for (let i = 0; i < RESPAWN_DELAY_TICKS - 1; i++) step(state);
+    expect(ninja.active).toBe(false);
+
+    step(state);
+    expect(ninja.active).toBe(true);
+    expect(ninja.hp).toBeCloseTo(MAX_HP * RESPAWN_HP_FRACTION);
+    expect(ninja.invulnerableTicks).toBe(RESPAWN_INVULN_TICKS);
   });
 
   it("resetObstacles restores the grid without moving ninjas", () => {
@@ -266,13 +344,16 @@ describe("determinism", () => {
     }
   });
 
-  it("never leaves ninjas overlapping after a tick", () => {
+  it("never leaves two active ninjas overlapping after a tick", () => {
+    // KO'd ninjas are excluded: a shatter leaves the target's body in place, still overlapping
+    // its killer, until the respawn delay moves it elsewhere — that's the intended KO visual, not a bug.
     const state = runScript(7, 1200);
 
     for (let i = 0; i < state.ninjas.length; i++) {
       for (let j = i + 1; j < state.ninjas.length; j++) {
         const a = state.ninjas[i]!;
         const b = state.ninjas[j]!;
+        if (!a.active || !b.active) continue;
         expect(lengthOf(b.x - a.x, b.y - a.y)).toBeGreaterThanOrEqual(a.radius + b.radius - 1e-9);
       }
     }

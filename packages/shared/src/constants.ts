@@ -17,8 +17,35 @@ export const REST_SPEED = 6;
 export const LAUNCH_SPEED_MIN = 220;
 export const LAUNCH_SPEED_MAX = 900;
 
-/** Max reach of a full-power (power=1) dash, in world units. Stands in for a TP-gated range until S6 wires real TP. */
+/** Max reach of a full-power (power=1) dash, in world units, before any TP cap is applied. */
 export const MAX_DASH_DISTANCE = 400;
+
+/** TP is spent 1:1 per world unit dashed, so it doubles as the hard cap on dash range. */
+export const MAX_TP = MAX_DASH_DISTANCE;
+
+/** TP regenerates fully in this many seconds when idle. */
+export const TP_REGEN_SECONDS = 2.5;
+export const TP_REGEN_PER_TICK = MAX_TP / (TP_REGEN_SECONDS * SIM_TICK_RATE_HZ);
+
+/** Ninja hit points; a dash that shatters an enemy sets this straight to 0 rather than chipping it. */
+export const MAX_HP = 100;
+
+/** Ougi meter; fills only from landing KOs until S7 adds real damage-dealing effects. */
+export const MAX_SP = 100;
+export const SP_GAIN_ON_KO = 50;
+
+/** KO'd ninjas sit out this long before respawning, then are invulnerable for a further window. */
+export const RESPAWN_DELAY_SECONDS = 3;
+export const RESPAWN_DELAY_TICKS = RESPAWN_DELAY_SECONDS * SIM_TICK_RATE_HZ;
+export const RESPAWN_INVULN_SECONDS = 2;
+export const RESPAWN_INVULN_TICKS = RESPAWN_INVULN_SECONDS * SIM_TICK_RATE_HZ;
+
+/** Fraction of max HP a respawned ninja comes back with. */
+export const RESPAWN_HP_FRACTION = 0.5;
+
+/** Regulation match length; sudden death (next KO wins) kicks in if the leaderboard is tied when this expires. */
+export const MATCH_DURATION_SECONDS = 120;
+export const MATCH_DURATION_TICKS = MATCH_DURATION_SECONDS * SIM_TICK_RATE_HZ;
 
 /** Bounciness of ninja-vs-ninja collisions. Walls and obstacles hard-stop a dash instead of bouncing it. */
 export const NINJA_RESTITUTION = 0.55;

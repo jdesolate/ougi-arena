@@ -3,6 +3,9 @@ import type { Room } from "colyseus.js";
 import {
   DOJO_ARENA,
   MAX_DASH_DISTANCE,
+  MAX_HP,
+  MAX_SP,
+  MAX_TP,
   NINJA_RADIUS,
   OBSTACLE_HP,
   SIM_DT,
@@ -35,16 +38,35 @@ interface NinjaView {
   x: number;
   y: number;
   active: boolean;
+  hp: number;
+  tp: number;
+  sp: number;
+  invulnerableTicks: number;
 }
 interface ObstacleView {
   hp: number;
   alive: boolean;
 }
+interface PlayerView {
+  characterId: string;
+  nickname: string;
+  isHost: boolean;
+  score: number;
+}
 interface ArenaStateView {
   phase: string;
-  players: { get(id: string): { characterId: string } | undefined };
+  matchTimeRemaining: number;
+  suddenDeath: boolean;
+  winnerId: string;
+  players: { get(id: string): PlayerView | undefined };
   ninjas: NinjaView[];
   obstacles: ObstacleView[];
+}
+
+function el<T extends HTMLElement>(id: string): T {
+  const found = document.getElementById(id);
+  if (!found) throw new Error(`missing #${id}`);
+  return found as T;
 }
 
 interface Snapshot {
@@ -72,6 +94,8 @@ export class GameScene extends Phaser.Scene {
   private pendingLocalCommand: LaunchCommand | null = null;
 
   private snapshots: Snapshot[] = [];
+  /** Detects the "finished" → "playing" transition on rematch, so prediction state gets rebuilt from scratch. */
+  private lastPhase = "";
 
   private dragging = false;
   private pointerX = 0;
@@ -79,6 +103,17 @@ export class GameScene extends Phaser.Scene {
 
   private worldGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
+
+  private readonly hudEl = el<HTMLDivElement>("hud");
+  private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
+  private readonly hudTpFillEl = el<HTMLDivElement>("hud-tp-fill");
+  private readonly hudSpFillEl = el<HTMLDivElement>("hud-sp-fill");
+  private readonly hudScoreboardEl = el<HTMLUListElement>("hud-scoreboard");
+  private readonly matchEndEl = el<HTMLDivElement>("match-end");
+  private readonly matchEndTitleEl = el<HTMLHeadingElement>("match-end-title");
+  private readonly matchEndResultsEl = el<HTMLUListElement>("match-end-results");
+  private readonly matchEndRematchBtn = el<HTMLButtonElement>("match-end-rematch-btn");
+  private readonly matchEndNoteEl = el<HTMLParagraphElement>("match-end-note");
 
   constructor(room: Room) {
     super("game");
@@ -94,6 +129,9 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointermove", this.onPointerMove, this);
     this.input.on("pointerup", this.onPointerUp, this);
 
+    this.matchEndRematchBtn.addEventListener("click", () => this.room.send("rematch"));
+
+    this.hudEl.hidden = false;
     this.room.onStateChange(() => this.onServerState());
 
     this.onServerState();
@@ -131,6 +169,16 @@ export class GameScene extends Phaser.Scene {
 
   /** Captures a snapshot, seeds the local prediction sim, and reconciles the local ninja against the server. */
   private onServerState(): void {
+    const state = this.state();
+    if (this.lastPhase === "finished" && state.phase === "playing") {
+      // Rematch restarted the match under our feet — throw away prediction state built for the last one.
+      this.localSim = null;
+      this.snapshots = [];
+      this.accumulatorMs = 0;
+      this.pendingLocalCommand = null;
+    }
+    this.lastPhase = state.phase;
+
     const now = performance.now();
     const ninjas = new Map<string, { x: number; y: number; active: boolean }>();
     for (const n of this.state().ninjas) {
@@ -146,6 +194,60 @@ export class GameScene extends Phaser.Scene {
     this.ensureLocalSim();
     this.syncLocalObstacles();
     this.reconcileLocal();
+    this.renderHud();
+    this.renderMatchEnd();
+  }
+
+  /** Timer, TP/SP meters, and the live scoreboard — plain DOM, matching the lobby overlay's approach. */
+  private renderHud(): void {
+    const state = this.state();
+    const minutes = Math.floor(state.matchTimeRemaining / 60);
+    const seconds = state.matchTimeRemaining % 60;
+    this.hudTimerEl.textContent =
+      `${minutes}:${String(seconds).padStart(2, "0")}` + (state.suddenDeath ? " (Sudden Death)" : "");
+
+    const mine = this.serverNinja();
+    this.hudTpFillEl.style.width = `${clamp(((mine?.tp ?? 0) / MAX_TP) * 100, 0, 100)}%`;
+    this.hudSpFillEl.style.width = `${clamp(((mine?.sp ?? 0) / MAX_SP) * 100, 0, 100)}%`;
+
+    this.hudScoreboardEl.innerHTML = "";
+    const rows = state.ninjas
+      .map((n) => ({ id: n.id, player: state.players.get(n.id) }))
+      .filter((row): row is { id: string; player: PlayerView } => row.player !== undefined)
+      .sort((a, b) => b.player.score - a.player.score);
+    for (const row of rows) {
+      const li = document.createElement("li");
+      li.textContent = `${row.player.nickname}: ${row.player.score}`;
+      this.hudScoreboardEl.appendChild(li);
+    }
+  }
+
+  /** Shows the final scoreboard once the match ends; host gets a rematch button, everyone else waits on them. */
+  private renderMatchEnd(): void {
+    const state = this.state();
+    const finished = state.phase === "finished";
+    this.matchEndEl.hidden = !finished;
+    if (!finished) return;
+
+    const isHost = state.players.get(this.localId)?.isHost ?? false;
+    this.matchEndTitleEl.textContent = state.winnerId
+      ? `${state.players.get(state.winnerId)?.nickname ?? "Someone"} wins!`
+      : "Draw!";
+
+    this.matchEndResultsEl.innerHTML = "";
+    const rows = state.ninjas
+      .map((n) => ({ id: n.id, player: state.players.get(n.id) }))
+      .filter((row): row is { id: string; player: PlayerView } => row.player !== undefined)
+      .sort((a, b) => b.player.score - a.player.score);
+    for (const row of rows) {
+      const li = document.createElement("li");
+      li.textContent = `${row.player.nickname}: ${row.player.score}`;
+      if (row.id === state.winnerId) li.classList.add("winner");
+      this.matchEndResultsEl.appendChild(li);
+    }
+
+    this.matchEndRematchBtn.hidden = !isHost;
+    this.matchEndNoteEl.hidden = isHost;
   }
 
   private ensureLocalSim(): void {
@@ -326,12 +428,25 @@ export class GameScene extends Phaser.Scene {
       const pos = isLocal ? this.localNinja() : this.interpolated(serverNinja.id);
       if (!pos || !pos.active) continue;
 
+      // Invulnerable (just-respawned) ninjas flicker so a hit-them-now-or-wait decision reads at a glance.
+      const invulnerable = serverNinja.invulnerableTicks > 0;
+      const alpha = invulnerable ? 0.5 + 0.5 * Math.sin(performance.now() / 80) : 1;
+
       const characterId = state.players.get(serverNinja.id)?.characterId ?? "default";
       const skin = skinFor(characterId);
-      g.fillStyle(skin.bodyColor, 1);
+      g.fillStyle(skin.bodyColor, alpha);
       g.fillCircle(pos.x, pos.y, NINJA_RADIUS);
-      g.lineStyle(2, skin.outlineColor, 1);
+      g.lineStyle(2, skin.outlineColor, alpha);
       g.strokeCircle(pos.x, pos.y, NINJA_RADIUS);
+
+      const hpFrac = clamp(serverNinja.hp / MAX_HP, 0, 1);
+      const barW = NINJA_RADIUS * 2;
+      const barX = pos.x - NINJA_RADIUS;
+      const barY = pos.y - NINJA_RADIUS - 10;
+      g.fillStyle(0x000000, 0.5);
+      g.fillRect(barX, barY, barW, 4);
+      g.fillStyle(hpFrac > 0.5 ? 0x4caf50 : hpFrac > 0.25 ? 0xffb300 : 0xe53935, 1);
+      g.fillRect(barX, barY, barW * hpFrac, 4);
     }
   }
 }

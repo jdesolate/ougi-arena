@@ -51,6 +51,14 @@ export function stopAtContact(ninja: NinjaState, contact: Contact): number {
   return impact;
 }
 
+/** Cheap overlap test used to decide whether a pair needs resolving at all. */
+export function circlesOverlap(a: NinjaState, b: NinjaState): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const minDist = a.radius + b.radius;
+  return dx * dx + dy * dy < minDist * minDist;
+}
+
 /** Equal-mass elastic-ish exchange plus a flat knockback bonus so hits read as hits. Returns impact speed. */
 export function resolveNinjaPair(a: NinjaState, b: NinjaState, restitution: number): number | null {
   const dx = b.x - a.x;

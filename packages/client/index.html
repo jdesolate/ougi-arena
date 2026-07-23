@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ougi Arena</title>
     <style>
+      [hidden] {
+        display: none !important;
+      }
       body {
         margin: 0;
         background: #1a1a2e;
@@ -43,6 +46,73 @@
         padding: 4px 0;
         border-bottom: 1px solid #333;
       }
+      #hud {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 8px 16px;
+        background: rgba(26, 26, 46, 0.85);
+        font-size: 0.9rem;
+      }
+      #hud-timer {
+        font-weight: bold;
+        min-width: 3.5em;
+      }
+      .meter-bar {
+        width: 100px;
+        height: 8px;
+        background: #333;
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .meter-fill {
+        height: 100%;
+      }
+      #hud-tp-fill {
+        background: #4fc3f7;
+      }
+      #hud-sp-fill {
+        background: #ffd166;
+      }
+      #hud-scoreboard {
+        list-style: none;
+        display: flex;
+        gap: 12px;
+        margin: 0;
+        padding: 0;
+      }
+      #match-end {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.7);
+      }
+      #match-end-panel {
+        background: #1a1a2e;
+        padding: 24px 32px;
+        border-radius: 8px;
+        min-width: 280px;
+        text-align: center;
+      }
+      #match-end-results {
+        list-style: none;
+        padding: 0;
+        text-align: left;
+      }
+      #match-end-results li {
+        padding: 4px 0;
+        border-bottom: 1px solid #333;
+      }
+      #match-end-results li.winner {
+        color: #ffd166;
+        font-weight: bold;
+      }
     </style>
   </head>
   <body>
@@ -64,6 +134,20 @@
         <p id="spectate-note" hidden>You're spectating this match — you'll join the next one.</p>
         <button id="start-btn" hidden>Start match</button>
         <p id="waiting-note">Waiting for the host to start…</p>
+      </div>
+    </div>
+    <div id="hud" hidden>
+      <span id="hud-timer">2:00</span>
+      <div class="meter-bar"><div id="hud-tp-fill" class="meter-fill" style="width: 100%"></div></div>
+      <div class="meter-bar"><div id="hud-sp-fill" class="meter-fill" style="width: 0%"></div></div>
+      <ul id="hud-scoreboard"></ul>
+    </div>
+    <div id="match-end" hidden>
+      <div id="match-end-panel">
+        <h2 id="match-end-title">Match over</h2>
+        <ul id="match-end-results"></ul>
+        <button id="match-end-rematch-btn" hidden>Rematch</button>
+        <p id="match-end-note" hidden>Waiting for the host to start a rematch…</p>
       </div>
     </div>
     <div id="app"></div>

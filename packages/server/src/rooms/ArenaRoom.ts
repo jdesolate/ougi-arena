@@ -2,7 +2,9 @@ import { Room, Client } from "@colyseus/core";
 import { Schema, ArraySchema, MapSchema, type } from "@colyseus/schema";
 import {
   DOJO_ARENA,
+  MATCH_DURATION_TICKS,
   SIM_DT,
+  SIM_TICK_RATE_HZ,
   createSimState,
   step,
   type LaunchCommand,
@@ -40,14 +42,20 @@ export class PlayerState extends Schema {
   @type("boolean") isHost = false;
   /** Mid-match joiners (or joiners past the active-player cap) watch until the next match. */
   @type("boolean") spectating = false;
+  /** KO count for the current match; reset on every match start (including rematch). */
+  @type("number") score = 0;
 }
 
-/** Authoritative ninja position streamed to clients; id is the owner's sessionId so a client finds its own. */
+/** Authoritative ninja state streamed to clients; id is the owner's sessionId so a client finds its own. */
 export class NinjaSchema extends Schema {
   @type("string") id = "";
   @type("number") x = 0;
   @type("number") y = 0;
   @type("boolean") active = true;
+  @type("number") hp = 0;
+  @type("number") tp = 0;
+  @type("number") sp = 0;
+  @type("number") invulnerableTicks = 0;
 }
 
 /** Only the mutable fields sync — obstacle geometry is static map data the client already has. */
@@ -57,8 +65,12 @@ export class ObstacleSchema extends Schema {
 }
 
 export class LobbyState extends Schema {
-  @type("string") phase: "lobby" | "playing" = "lobby";
+  @type("string") phase: "lobby" | "playing" | "finished" = "lobby";
   @type("number") tick = 0;
+  @type("number") matchTimeRemaining = 0;
+  @type("boolean") suddenDeath = false;
+  /** Winning player's sessionId once `phase` is "finished"; empty string on an unresolved draw. */
+  @type("string") winnerId = "";
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type([NinjaSchema]) ninjas = new ArraySchema<NinjaSchema>();
   @type([ObstacleSchema]) obstacles = new ArraySchema<ObstacleSchema>();
@@ -78,12 +90,15 @@ export class ArenaRoom extends Room<LobbyState> {
   /** Launches received since the last tick; drained into the next fixed step. */
   private launchQueue: LaunchCommand[] = [];
   private accumulatorMs = 0;
+  /** Source of truth for the match clock; `state.matchTimeRemaining` is just its seconds display. */
+  private matchTicksRemaining = 0;
 
   onCreate(options: CreateOptions = {}): void {
     this.setState(new LobbyState());
     this.setPrivate(options.isPrivate === true);
     this.onMessage("start", (client) => this.handleStart(client));
     this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
+    this.onMessage("rematch", (client) => this.handleRematch(client));
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
@@ -118,6 +133,12 @@ export class ArenaRoom extends Room<LobbyState> {
     this.startMatch();
   }
 
+  private handleRematch(client: Client): void {
+    const player = this.state.players.get(client.sessionId);
+    if (!player?.isHost || this.state.phase !== "finished") return;
+    this.startMatch();
+  }
+
   private handleLaunch(client: Client, message: LaunchMessage): void {
     if (this.state.phase !== "playing") return;
     const dirX = Number(message?.dirX);
@@ -128,7 +149,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.launchQueue.push({ type: "launch", ninjaId: client.sessionId, dirX, dirY, power });
   }
 
-  /** Builds the sim from the current active players and starts advancing it at a fixed 30Hz. */
+  /** Builds the sim from the current active players and starts advancing it at a fixed 30Hz. Also used for rematch. */
   private startMatch(): void {
     const activeIds = this.joinOrder.filter((id) => {
       const player = this.state.players.get(id);
@@ -138,6 +159,9 @@ export class ArenaRoom extends Room<LobbyState> {
     this.sim = createSimState(activeIds, DOJO_ARENA);
     this.launchQueue = [];
     this.accumulatorMs = 0;
+    this.matchTicksRemaining = MATCH_DURATION_TICKS;
+
+    for (const player of this.state.players.values()) player.score = 0;
 
     this.state.ninjas.clear();
     for (const ninja of this.sim.ninjas) {
@@ -146,6 +170,10 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.x = ninja.x;
       schema.y = ninja.y;
       schema.active = ninja.active;
+      schema.hp = ninja.hp;
+      schema.tp = ninja.tp;
+      schema.sp = ninja.sp;
+      schema.invulnerableTicks = ninja.invulnerableTicks;
       this.state.ninjas.push(schema);
     }
 
@@ -158,24 +186,70 @@ export class ArenaRoom extends Room<LobbyState> {
     }
 
     this.state.phase = "playing";
+    this.state.suddenDeath = false;
+    this.state.winnerId = "";
+    this.state.matchTimeRemaining = Math.ceil(this.matchTicksRemaining / SIM_TICK_RATE_HZ);
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), SIM_DT_MS);
   }
 
   private tick(deltaMs: number): void {
-    if (!this.sim) return;
+    if (!this.sim || this.state.phase !== "playing") return;
 
     this.accumulatorMs += deltaMs;
     let steps = 0;
+    let suddenDeathKO = false;
     while (this.accumulatorMs >= SIM_DT_MS && steps < MAX_STEPS_PER_TICK) {
       // Queued launches apply on the first step only, so a catch-up burst can't fire the same dash repeatedly.
       const commands = steps === 0 ? this.launchQueue : [];
-      step(this.sim, commands);
+      const events = step(this.sim, commands);
+      for (const event of events) {
+        if (event.type !== "ninjaKO") continue;
+        const killer = this.state.players.get(event.killerId);
+        if (killer) killer.score++;
+        if (this.state.suddenDeath) suddenDeathKO = true;
+      }
       this.accumulatorMs -= SIM_DT_MS;
       steps++;
     }
     this.launchQueue = [];
 
     this.syncState();
+
+    if (suddenDeathKO) {
+      this.endMatch();
+      return;
+    }
+
+    this.matchTicksRemaining = Math.max(0, this.matchTicksRemaining - steps);
+    this.state.matchTimeRemaining = Math.ceil(this.matchTicksRemaining / SIM_TICK_RATE_HZ);
+    if (!this.state.suddenDeath && this.matchTicksRemaining <= 0) {
+      if (this.leaderIds().length > 1) this.state.suddenDeath = true;
+      else this.endMatch();
+    }
+  }
+
+  /** Regulation time is up (or sudden death just resolved) with a clear winner — freeze the match. */
+  private endMatch(): void {
+    this.state.phase = "finished";
+    const leaders = this.leaderIds();
+    this.state.winnerId = leaders.length === 1 ? leaders[0]! : "";
+  }
+
+  /** SessionIds tied for the highest score among this match's participants (`sim.ninjas`), spectators excluded. */
+  private leaderIds(): string[] {
+    if (!this.sim) return [];
+    let best = -1;
+    let leaders: string[] = [];
+    for (const ninja of this.sim.ninjas) {
+      const score = this.state.players.get(ninja.id)?.score ?? 0;
+      if (score > best) {
+        best = score;
+        leaders = [ninja.id];
+      } else if (score === best) {
+        leaders.push(ninja.id);
+      }
+    }
+    return leaders;
   }
 
   /** Mirrors the plain sim into the synced schema; arrays stay index-aligned with the sim. */
@@ -189,6 +263,10 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.x = ninja.x;
       schema.y = ninja.y;
       schema.active = ninja.active;
+      schema.hp = ninja.hp;
+      schema.tp = ninja.tp;
+      schema.sp = ninja.sp;
+      schema.invulnerableTicks = ninja.invulnerableTicks;
     }
 
     for (let i = 0; i < this.sim.obstacles.length; i++) {

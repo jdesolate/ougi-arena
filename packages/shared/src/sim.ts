@@ -1,16 +1,24 @@
-import { circleAabbContact, closingSpeed, resolveNinjaPair, stopAtContact } from "./collision.js";
+import { circleAabbContact, circlesOverlap, closingSpeed, resolveNinjaPair, stopAtContact } from "./collision.js";
 import {
   LAUNCH_SPEED_MAX,
   LAUNCH_SPEED_MIN,
   LINEAR_DAMPING_PER_TICK,
   MAX_DASH_DISTANCE,
+  MAX_HP,
+  MAX_SP,
+  MAX_TP,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
   NINJA_RESTITUTION,
   OBSTACLE_DAMAGE_PER_IMPACT_SPEED,
   OBSTACLE_HP,
   REST_SPEED,
+  RESPAWN_DELAY_TICKS,
+  RESPAWN_HP_FRACTION,
+  RESPAWN_INVULN_TICKS,
   SIM_DT,
+  SP_GAIN_ON_KO,
+  TP_REGEN_PER_TICK,
 } from "./constants.js";
 import { clamp, lengthOf } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
@@ -31,7 +39,41 @@ export function spawnPointFor(map: ArenaMap, index: number): Vec2 {
 }
 
 export function createNinja(id: string, spawn: Vec2): NinjaState {
-  return { id, x: spawn.x, y: spawn.y, vx: 0, vy: 0, radius: NINJA_RADIUS, dashBudget: 0, active: true };
+  return {
+    id,
+    x: spawn.x,
+    y: spawn.y,
+    vx: 0,
+    vy: 0,
+    radius: NINJA_RADIUS,
+    dashBudget: 0,
+    active: true,
+    hp: MAX_HP,
+    tp: MAX_TP,
+    sp: 0,
+    invulnerableTicks: 0,
+    respawnTicks: 0,
+  };
+}
+
+/** Spawn point whose distance to the nearest other active ninja is greatest — deterministic stand-in for "random" that keeps the sim reproducible. */
+function bestRespawnPoint(state: SimState, ninjaId: string): Vec2 {
+  const others = state.ninjas.filter((n) => n.active && n.id !== ninjaId);
+  let best: Vec2 = spawnPointFor(state.map, 0);
+  let bestScore = -Infinity;
+
+  state.map.spawns.forEach((spawn, index) => {
+    const score =
+      others.length === 0
+        ? Infinity
+        : Math.min(...others.map((o) => lengthOf(spawn.x - o.x, spawn.y - o.y)));
+    if (score > bestScore) {
+      bestScore = score;
+      best = spawnPointFor(state.map, index);
+    }
+  });
+
+  return best;
 }
 
 function createObstacles(map: ArenaMap): ObstacleState[] {
@@ -66,10 +108,15 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
   if (len === 0) return 0;
 
   const power = clamp(command.power, 0, 1);
+  // TP is spent 1:1 per world unit dashed, so a drained ninja's dash falls short of a full-power reach.
+  const distance = Math.min(power * MAX_DASH_DISTANCE, ninja.tp);
+  if (distance <= 0) return 0;
+
   const speed = LAUNCH_SPEED_MIN + (LAUNCH_SPEED_MAX - LAUNCH_SPEED_MIN) * power;
   ninja.vx = (command.dirX / len) * speed;
   ninja.vy = (command.dirY / len) * speed;
-  ninja.dashBudget = power * MAX_DASH_DISTANCE;
+  ninja.dashBudget = distance;
+  ninja.tp -= distance;
   return speed;
 }
 
@@ -180,14 +227,63 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
     for (let j = i + 1; j < state.ninjas.length; j++) {
       const b = state.ninjas[j];
       if (!b || !b.active) continue;
+      if (!circlesOverlap(a, b)) continue;
 
-      const impact = resolveNinjaPair(a, b, NINJA_RESTITUTION);
-      if (impact !== null && impact >= MIN_IMPACT_SPEED) {
-        events.push({ type: "ninjaHit", aId: a.id, bId: b.id, impact });
+      // A live dash shatters (instant-KOs) whoever it reaches instead of bouncing off them, and carries on
+      // through to its target point. If both are mid-dash, `a` (lower index — fixed iteration order) wins;
+      // an invulnerable or already-KO'd target can't be shattered, so contact falls through to a soft bump.
+      if (a.dashBudget > 0 && b.invulnerableTicks <= 0 && b.respawnTicks <= 0) {
+        shatterNinja(a, b, events);
+      } else if (b.dashBudget > 0 && a.invulnerableTicks <= 0 && a.respawnTicks <= 0) {
+        shatterNinja(b, a, events);
+      } else {
+        const impact = resolveNinjaPair(a, b, NINJA_RESTITUTION);
+        if (impact !== null && impact >= MIN_IMPACT_SPEED) {
+          events.push({ type: "ninjaHit", aId: a.id, bId: b.id, impact });
+        }
       }
     }
   }
 
+  for (const ninja of state.ninjas) {
+    ninja.tp = Math.min(MAX_TP, ninja.tp + TP_REGEN_PER_TICK);
+
+    if (ninja.active) {
+      if (ninja.invulnerableTicks > 0) ninja.invulnerableTicks--;
+      continue;
+    }
+
+    if (ninja.respawnTicks <= 0) continue;
+    ninja.respawnTicks--;
+    if (ninja.respawnTicks === 0) respawnNinja(state, ninja);
+  }
+
   state.tick++;
   return events;
+}
+
+/** `attacker` passes through untouched; `target` is instantly KO'd and starts its respawn countdown. */
+function shatterNinja(attacker: NinjaState, target: NinjaState, events: SimEvent[]): void {
+  target.hp = 0;
+  target.active = false;
+  target.vx = 0;
+  target.vy = 0;
+  target.dashBudget = 0;
+  target.invulnerableTicks = 0;
+  target.respawnTicks = RESPAWN_DELAY_TICKS;
+  attacker.sp = Math.min(MAX_SP, attacker.sp + SP_GAIN_ON_KO);
+  events.push({ type: "ninjaKO", targetId: target.id, killerId: attacker.id });
+}
+
+function respawnNinja(state: SimState, ninja: NinjaState): void {
+  const spawn = bestRespawnPoint(state, ninja.id);
+  ninja.x = spawn.x;
+  ninja.y = spawn.y;
+  ninja.vx = 0;
+  ninja.vy = 0;
+  ninja.dashBudget = 0;
+  ninja.hp = MAX_HP * RESPAWN_HP_FRACTION;
+  ninja.tp = MAX_TP;
+  ninja.invulnerableTicks = RESPAWN_INVULN_TICKS;
+  ninja.active = true;
 }

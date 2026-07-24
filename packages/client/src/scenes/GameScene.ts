@@ -37,8 +37,6 @@ const SIM_DT_MS = SIM_DT * 1000;
 /** Caps how many fixed steps run in one frame, so a tab-switch stall can't spiral into a freeze. */
 const MAX_STEPS_PER_FRAME = 5;
 
-/** Drag distance, in world units, that maps to full launch power. Input feel, not sim physics. */
-const MAX_DRAG_DISTANCE = 160;
 /** Generous grab radius so the drag doesn't need pixel-perfect precision on the ninja. */
 const GRAB_RADIUS = NINJA_RADIUS * 2.5;
 
@@ -149,6 +147,8 @@ export class GameScene extends Phaser.Scene {
   private readonly effects = new MatchEffects(this);
   /** One sprite per ninja, created on first sight and reused; `drawWorld` only repositions them. */
   private readonly ninjaSprites = new Map<string, Phaser.GameObjects.Sprite>();
+  /** One nameplate per ninja — characters repeat in a room, so this is the only way to tell ninjas apart mid-fight. */
+  private readonly nameplates = new Map<string, Phaser.GameObjects.Text>();
   /** Drives the countdown beep off whole-second changes rather than every state sync. */
   private lastTimeRemaining = -1;
 
@@ -415,6 +415,8 @@ export class GameScene extends Phaser.Scene {
         sprite.destroy();
       }
       this.ninjaSprites.clear();
+      for (const nameplate of this.nameplates.values()) nameplate.destroy();
+      this.nameplates.clear();
     }
     if (this.lastPhase !== state.phase) {
       if (state.phase === "playing") playSfx(this, "match-start", 0.5, false);
@@ -614,9 +616,9 @@ export class GameScene extends Phaser.Scene {
     const dragDist = lengthOf(dragX, dragY);
     if (dragDist === 0) return;
 
-    // Slingshot: pull back, release launches the opposite way, snapped to an axis.
-    const power = clamp(dragDist / MAX_DRAG_DISTANCE, 0, 1);
-    const dir = snapToCardinal(-dragX, -dragY);
+    // Drag-toward: release launches toward the pointer, 1:1 with drag distance (capped at full range), snapped to an axis.
+    const power = clamp(dragDist / maxDashDistanceOf(ninja), 0, 1);
+    const dir = snapToCardinal(dragX, dragY);
     const command: LaunchCommand = {
       type: "launch",
       ninjaId: this.localId,
@@ -643,17 +645,17 @@ export class GameScene extends Phaser.Scene {
     const dragX = this.pointerX - ninja.x;
     const dragY = this.pointerY - ninja.y;
     const dragDist = lengthOf(dragX, dragY);
-    const power = clamp(dragDist / MAX_DRAG_DISTANCE, 0, 1);
+    const power = clamp(dragDist / maxDashDistanceOf(ninja), 0, 1);
 
     this.aimGfx.clear();
-    // Pull-back handle, drawn toward the pointer.
+    // Raw drag, drawn toward the pointer — this is the direction and (uncapped) distance being requested.
     this.aimGfx.lineStyle(3, 0xffffff, 0.6);
     this.aimGfx.lineBetween(ninja.x, ninja.y, this.pointerX, this.pointerY);
 
-    // Launch preview: exactly where the dash will land, so the arrow shows the real destination, not just a direction.
+    // Launch preview: exactly where the dash will land, 1:1 with the drag, so the arrow shows the real destination.
     // Capped by current TP too — as the hold charges TP, the preview grows in real time to match.
     const previewLen = Math.min(power * maxDashDistanceOf(ninja), ninja.tp);
-    const dir = snapToCardinal(-dragX, -dragY);
+    const dir = snapToCardinal(dragX, dragY);
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;
     this.aimGfx.lineStyle(4, 0xffd166, 0.9);
@@ -729,6 +731,7 @@ export class GameScene extends Phaser.Scene {
 
       if (!pos || !pos.active) {
         sprite.setVisible(false);
+        this.nameplates.get(serverNinja.id)?.setVisible(false);
         continue;
       }
 
@@ -755,11 +758,21 @@ export class GameScene extends Phaser.Scene {
       overlay.fillRect(barX, barY, barW, 4);
       overlay.fillStyle(hpFrac > 0.5 ? 0x4caf50 : hpFrac > 0.25 ? 0xffb300 : 0xe53935, 1);
       overlay.fillRect(barX, barY, barW * hpFrac, 4);
+
+      const player = state.players.get(serverNinja.id);
+      const nameplate = this.nameplateFor(serverNinja.id);
+      nameplate.setText(`${player?.nickname ?? "???"}${player?.isBot ? " (bot)" : ""}`);
+      nameplate.setColor(isLocal ? "#ffd166" : "#e8e8e8");
+      nameplate.setVisible(true);
+      nameplate.setPosition(pos.x, barY - 4);
     }
 
     // A rematch can drop a player entirely; their sprite would otherwise linger where they were last drawn.
     for (const [id, sprite] of this.ninjaSprites) {
-      if (!seen.has(id)) sprite.setVisible(false);
+      if (!seen.has(id)) {
+        sprite.setVisible(false);
+        this.nameplates.get(id)?.setVisible(false);
+      }
     }
   }
 
@@ -773,5 +786,17 @@ export class GameScene extends Phaser.Scene {
       .setDepth(DEPTH_NINJA);
     this.ninjaSprites.set(ninjaId, sprite);
     return sprite;
+  }
+
+  private nameplateFor(ninjaId: string): Phaser.GameObjects.Text {
+    const existing = this.nameplates.get(ninjaId);
+    if (existing) return existing;
+
+    const text = this.add
+      .text(0, 0, "", { fontFamily: "system-ui, sans-serif", fontSize: "12px", color: "#e8e8e8" })
+      .setOrigin(0.5, 1)
+      .setDepth(DEPTH_OVERLAY);
+    this.nameplates.set(ninjaId, text);
+    return text;
   }
 }

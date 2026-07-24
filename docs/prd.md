@@ -1,11 +1,11 @@
 # Ougi Arena — Product Requirements Document
 
-**Status:** pre-development · **Owner:** Merv · **Last updated:** 2026-07-23
+**Status:** in development (M6) · **Owner:** Merv · **Last updated:** 2026-07-25
 **Companion docs:** [mvp-plan.md](mvp-plan.md) (decisions, milestones, session plan)
 
 ## 1. Overview
 
-Ougi Arena is a real-time multiplayer browser game inspired by the defunct browser brawler Nindou. Chibi ninjas slingshot-dash around a destructible arena in short free-for-all matches, charging an ultimate move (Ougi) by dealing damage.
+Ougi Arena is a real-time multiplayer browser game inspired by the defunct browser brawler Nindou. Chibi ninjas dash around a destructible arena and swing short-range weapons at each other in free-for-all matches, charging an ultimate move (Ougi) by dealing damage.
 
 Primary purpose: **a game the author genuinely enjoys and can share** — seamless to join, fun within seconds, always playable (bots fill empty slots), and hosted entirely on free tiers. Engineering/portfolio value is secondary.
 
@@ -22,7 +22,7 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 - Ranked or skill-based matchmaking (Quick Play is "fill any open room," not ELO).
 - Fully mobile-optimized UI (touch works and gets a light pass; desktop-first).
 - Anti-cheat beyond server authority.
-- More than one arena map.
+- ~~More than one arena map.~~ *Revised 2026-07-25: three arenas ship. Once maps are authored as ASCII rows and parsed into the existing `ArenaMap` contract, the parser is the work and each additional map is ~10 lines of text. A map editor, user-made maps, or per-map rulesets remain non-goals.*
 
 ## 3. Target users
 
@@ -42,13 +42,22 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 - FR-7: A disconnected player (network blip, tab/phone sleep) can rejoin the same live match within a grace window (~30s) with their state intact.
 
 ### 4.2 Core gameplay
-- FR-8: Slingshot movement — press on own ninja (generous grab radius), drag back, release to launch. Launch direction is locked to the 4 cardinal directions (up/down/left/right), Nindou-style — no diagonal dashes. The drag distance sets an exact target point, capped by the player's current TP (more TP = longer reach); the dash travels precisely to that point and no further — no ballistic overshoot. TP is spent by dashing and regenerates over time.
+- FR-8: Drag-toward movement — press and hold your own ninja (generous grab radius) to charge TP, drag **toward the spot you want to land on**, release to launch. Launch direction is locked to the 4 cardinal directions (up/down/left/right), Nindou-style — no diagonal dashes. The drag maps 1:1 to distance: you land where the pointer is — snapped to the nearest cell centre per FR-28 — capped by the player's current TP (more TP = longer reach), and the dash travels precisely to that point and no further, no ballistic overshoot. A dash reads as "three tiles left", and TP reads as tiles of range. TP is spent by dashing and only recharges while holding. *(Revised 2026-07-25: this was a pull-back slingshot — drag away from the target — through S10. Playtesting found the inversion unintuitive.)*
 - FR-9: A dash hard-stops the instant it contacts a wall or an obstacle — no bounce, no knockback carrying it past the contact point, whether or not the obstacle breaks. A dash that reaches an enemy ninja instead passes through, shattering (instantly KO'ing) that ninja and continuing on to the original target point.
-- FR-10: Destructible obstacle grid; obstacles have HP, shatter when dashed through, do not respawn within a match.
+- FR-10: Obstacles sit on the arena grid in three tiers: **indestructible stone pillars** (hard cover, form the choke points), **crates/baskets** at full HP, and **hay bales** that clear in 1–2 hits. Destructibles shatter when dashed through or struck by a weapon, and do not respawn within a match; the grid resets at match start.
 - FR-11: Damage on ninja-vs-ninja hits; HP depletion causes KO. Being shattered by a passing dash (FR-9) is also an instant KO regardless of remaining HP. KO'd ninjas respawn at a random point on the map with reduced HP after a short delay, with a blinking invulnerability period on arrival before they can be damaged again. A shatter KO shows a smoke effect at the point of impact.
 - FR-12: SP charges only by dealing damage; at max SP the player may fire their character's Ougi.
 - FR-13: 3–4 selectable characters, identical base stats, each defined by one unique Ougi.
 - FR-14: Matches are 2-minute timed kill-count; scoreboard at the end; sudden-death next-KO on ties.
+- FR-22: Every ninja carries one melee weapon, picked at character select independently of character (character decides the Ougi, weapon decides the attack). At least 3 weapons ship: **kunai** (1 cell in front, fastest, lowest damage), **paper fan** (3 cells — front, front-left, front-right, medium speed and damage), **longsword** (2 cells — front and one beyond, slowest, highest damage).
+- FR-23: An attack hits a fixed set of grid cells relative to the swing direction, snapped to the same 4 cardinals as movement; a cell is obstacle-box sized so "one box in front" is literal. Attacks chip HP (KO at 0) rather than instant-killing, charge SP by damage dealt like any other damage source, and damage destructible obstacles in the hit cells. Dash-shatter (FR-9) remains the only instant kill.
+- FR-24: Each weapon has its own attack speed, enforced as a per-weapon cooldown; an attack requested during cooldown is dropped, not queued. Attacks cost no TP.
+- FR-25: Attack input is a tap/click on a spot away from your own ninja, which swings in that direction — one input scheme for touch and desktop alike. The swing animation and its sound play locally at 0ms; the server resolves all damage.
+- FR-26: Each ninja renders its nickname above its HP bar, small but always legible; bots are labeled and the local player's own plate is visually distinguished. Characters repeat within a room, so a plate is the only way to find yourself mid-fight.
+- FR-27: Arenas are built on an 80-unit cell grid — the same unit weapon patterns are measured in — giving a 15 x 8 playable board. Layouts follow the reference game's shape: dense pillars forming 1-cell choke points, open mid-lanes for dodging, and breakable clutter in corner pockets.
+- FR-28: A dash resolves to the nearest cell centre along its axis, clamped down to the nearest cell the player's TP can actually reach. A ninja knocked off-grid (Ougi knockback, an idle bump, a dash hard-stopped mid-cell by a pillar) is realigned by its next dash — snapping the destination, not the position, means no ninja can be wedged between cells.
+- FR-29: Three arenas ship, authored as ASCII rows and parsed into `ArenaMap`. The host picks the map in the lobby; the choice syncs to all clients on the room schema.
+- FR-30: Tall obstacles occlude ninjas standing behind them, via depth sorting on the y of each sprite's bottom edge.
 
 ### 4.3 Bots
 - FR-15: AI bots fill empty room slots so every match has 2–4 combatants; bots yield their slot to joining humans at match boundaries.
@@ -88,6 +97,9 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 | Determinism drift between client/server sim | Single shared TS sim package, fixed timestep, sim unit tests |
 | Scope creep toward "real game" features | Non-goals list; post-MVP backlog absorbs ideas instead of the MVP |
 | Bots feel like filler, not fun | Bot session includes tuning time; bots labeled honestly; practice mode framed as a feature |
+| Weapons make dashing pointless, or vice versa | Dash keeps the only instant kill (FR-9); weapons only chip. Damage and cooldown are per-weapon data, so balance is a table edit, and the kunai alone is a shippable fallback if the set doesn't gel |
+| A dense pillar grid strangles dashing — every launch hard-stops after one cell | Pillar density is per-map data, so it's tuned by editing text, not code; the three maps can deliberately span open-to-cramped. Watch it in the S13 playtest specifically |
+| Cell-snapped landing makes dodging feel coarse or removes near-miss escapes | S11 playtests drag-toward *before* snapping lands in S12, so the two feel changes are judged separately rather than as one lump |
 
 ## 8. Post-MVP roadmap
 
@@ -100,7 +112,10 @@ Ordered by expected value for making the game more fun and more shared. None of 
 
 ### Phase 2 — Depth
 - **Team mode: Save the Princess** — 2v2 objective mode faithful to Nindou's flagship (barriers, objective HP, team assignment).
-- **More characters/Ougis** (target 6–8) and a second arena map (map system is data-driven from MVP).
+- **Special weapon with a weapon-bound Ougi** — a 4th weapon that carries its own ultimate instead of inheriting the character's, charged by weapon hits and KOs rather than damage dealt generally. The MVP keeps weapon and character as separate picks specifically so this lands as a weapon-level Ougi override, not a fourth character. Open design question when it comes up: whether the weapon Ougi replaces the character Ougi or fills a second meter.
+- **More weapons** beyond the first three (reach vs speed vs coverage is a big enough axis to carry several).
+- **More characters/Ougis** (target 6–8) and more arenas beyond the MVP's three (a map is ~10 lines of ASCII once the parser exists).
+- **Map hazards and interactive props** — the reference game's roaming neutral creeps, loot-dropping baskets, statues. The grid and obstacle tiers make these additions to map data rather than new systems.
 - **Smarter bots** (difficulty tiers, Ougi timing, target selection).
 - **Local-storage progression**: cosmetics/stats without accounts.
 

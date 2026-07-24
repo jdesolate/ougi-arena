@@ -2,6 +2,9 @@ import type { Room } from "colyseus.js";
 import { CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
 import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
 import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
+import { playUiSfx } from "./audio/sfx.js";
+import { skinFor } from "./skins.js";
+import { drawPortrait } from "./ui/portrait.js";
 
 const NICKNAME_MAX_LENGTH = 16;
 const RECONNECT_STORAGE_KEY = "ougi-arena:reconnect";
@@ -63,7 +66,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   const formEl = el<HTMLDivElement>("lobby-form");
   const roomEl = el<HTMLDivElement>("lobby-room");
   const nicknameInput = el<HTMLInputElement>("nickname-input");
-  const characterSelect = el<HTMLSelectElement>("character-select");
+  const characterSelectEl = el<HTMLDivElement>("character-select");
   const characterOugiEl = el<HTMLParagraphElement>("character-ougi");
   const privateToggle = el<HTMLInputElement>("private-toggle");
   const createBtn = el<HTMLButtonElement>("create-btn");
@@ -119,7 +122,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   function joinOptions(): { nickname: string; characterId: string } {
     return {
       nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
-      characterId: characterSelect.value,
+      characterId: selectedCharacterId,
     };
   }
 
@@ -139,19 +142,38 @@ export function initLobby(onStart: (room: Room) => void): void {
     });
   }
 
-  // Placeholder picker until S10's character-select screen; a character is only its Ougi for now.
-  for (const character of CHARACTERS) {
-    const option = document.createElement("option");
-    option.value = character.id;
-    option.textContent = character.name;
-    characterSelect.appendChild(option);
-  }
-  function renderCharacterOugi(): void {
-    const ougi = ougiForCharacter(characterSelect.value);
+  /** Character select: a card per ninja, showing the sprite in that character's colour and the Ougi it brings. */
+  let selectedCharacterId = CHARACTERS[0]?.id ?? "";
+  const characterCards = new Map<string, HTMLButtonElement>();
+
+  function selectCharacter(characterId: string, silent = false): void {
+    selectedCharacterId = characterId;
+    for (const [id, card] of characterCards) {
+      card.setAttribute("aria-pressed", String(id === characterId));
+    }
+    const ougi = ougiForCharacter(characterId);
     characterOugiEl.textContent = `${ougi.name} — ${ougi.description}`;
+    if (!silent) playUiSfx("select");
   }
-  characterSelect.addEventListener("change", renderCharacterOugi);
-  renderCharacterOugi();
+
+  for (const character of CHARACTERS) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "character-card";
+    card.setAttribute("aria-pressed", "false");
+
+    const canvas = document.createElement("canvas");
+    void drawPortrait(canvas, skinFor(character.id).bodyColor);
+
+    const name = document.createElement("span");
+    name.textContent = character.name;
+
+    card.append(canvas, name);
+    card.addEventListener("click", () => selectCharacter(character.id));
+    characterSelectEl.appendChild(card);
+    characterCards.set(character.id, card);
+  }
+  selectCharacter(selectedCharacterId, true);
 
   /** Renders the public room list, and keeps it fresh so a lobby that just filled up isn't still advertised. */
   async function refreshRoomList(): Promise<void> {

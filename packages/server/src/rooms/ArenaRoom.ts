@@ -10,6 +10,7 @@ import {
   createSimState,
   step,
   type SimCommand,
+  type SimEvent,
   type SimState,
 } from "@ougi-arena/shared";
 import { BOT_ID_PREFIX, decideBotCommand, isBotId } from "../bot.js";
@@ -306,10 +307,12 @@ export class ArenaRoom extends Room<LobbyState> {
     this.accumulatorMs += deltaMs;
     let steps = 0;
     let suddenDeathKO = false;
+    const tickEvents: SimEvent[] = [];
     while (this.accumulatorMs >= SIM_DT_MS && steps < MAX_STEPS_PER_TICK) {
       // Queued commands apply on the first step only, so a catch-up burst can't fire the same dash repeatedly.
       const commands = steps === 0 ? this.commandQueue : [];
       const events = step(this.sim, commands);
+      tickEvents.push(...events);
       for (const event of events) {
         if (event.type !== "ninjaKO") continue;
         const killer = this.state.players.get(event.killerId);
@@ -319,6 +322,9 @@ export class ArenaRoom extends Room<LobbyState> {
       this.accumulatorMs -= SIM_DT_MS;
       steps++;
     }
+    // Schema diffs say what the world looks like now, not what just happened to it — hits, breaks and KOs are
+    // instants the client can't recover from state alone, so the effects/audio pass gets them as events.
+    if (tickEvents.length > 0) this.broadcast("events", tickEvents);
     // Only the first step consumes the queue, so clear it only if a step actually ran — a callback that
     // arrives before a full timestep has accrued must leave those commands queued, not drop them.
     if (steps > 0) {

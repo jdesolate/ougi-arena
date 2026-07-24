@@ -136,6 +136,41 @@
         margin: 0;
         font-size: 0.85rem;
         color: #aaa;
+        min-height: 2.4em;
+      }
+      #character-select {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .character-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 4px;
+        background: #22223f;
+        border: 2px solid transparent;
+        border-radius: 6px;
+        color: #eee;
+        font: inherit;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      .character-card:hover {
+        background: #2c2c50;
+      }
+      .character-card[aria-pressed="true"] {
+        border-color: #ffd166;
+        background: #2c2c50;
+      }
+      .character-card canvas {
+        width: 48px;
+        height: 48px;
+        image-rendering: pixelated;
+      }
+      #hud-timer.urgent {
+        color: #ff6b6b;
       }
       #hud-scoreboard {
         list-style: none;
@@ -179,7 +214,8 @@
       <h1>Ougi Arena</h1>
       <div id="lobby-form">
         <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
-        <label>Character <select id="character-select"></select></label>
+        <h2>Choose your ninja</h2>
+        <div id="character-select"></div>
         <p id="character-ougi"></p>
         <button id="quick-play-btn">Quick Play</button>
         <label><input id="private-toggle" type="checkbox" /> Private room</label>

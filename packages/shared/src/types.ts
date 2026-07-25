@@ -43,20 +43,37 @@ export interface NinjaState {
   respawnTicks: number;
 }
 
-export interface ObstacleState extends Aabb {
-  id: number;
+/** A destructible box as authored in map data; `hp` is what tells a hay bale from a crate. */
+export interface ObstacleTemplate extends Aabb {
   hp: number;
+}
+
+export interface ObstacleState extends ObstacleTemplate {
+  id: number;
+  /** What this obstacle started with, so a renderer can show damage without knowing its tier. */
+  maxHp: number;
   alive: boolean;
+}
+
+/** The cell grid a map is authored on; `CELL` is the size, so only the placement varies per map. */
+export interface ArenaGrid {
+  /** World position of the top-left corner of cell (0, 0) — the inside face of the border wall. */
+  originX: number;
+  originY: number;
+  cols: number;
+  rows: number;
 }
 
 export interface ArenaMap {
   id: string;
   width: number;
   height: number;
-  /** Indestructible geometry, including the arena border. */
+  /** Dash destinations snap to this grid's cell centres, which is what keeps the board self-aligning. */
+  grid: ArenaGrid;
+  /** Indestructible geometry: the arena border plus any stone pillars. */
   walls: Aabb[];
-  /** Destructible grid, reset from this template at match start. */
-  obstacles: Aabb[];
+  /** Destructible boxes, reset from this template at match start. */
+  obstacles: ObstacleTemplate[];
   spawns: Vec2[];
 }
 

@@ -1,6 +1,7 @@
 export * from "./constants.js";
 export * from "./types.js";
 export * from "./math.js";
+export * from "./grid.js";
 export * from "./collision.js";
 export * from "./map.js";
 export * from "./damage.js";

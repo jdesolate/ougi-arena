@@ -6,13 +6,14 @@ import {
   MAX_SP,
   MAX_TP,
   NINJA_RADIUS,
-  OBSTACLE_HP,
   SIM_DT,
   clamp,
   createSimState,
+  dashDistanceFor,
   lengthOf,
   maxDashDistanceOf,
   ougiForCharacter,
+  snapToCardinal,
   step,
   type LaunchCommand,
   type SimEvent,
@@ -105,12 +106,6 @@ function el<T extends HTMLElement>(id: string): T {
 interface Snapshot {
   t: number;
   ninjas: Map<string, { x: number; y: number; active: boolean }>;
-}
-
-/** Nindou-style movement: dashes only go up/down/left/right, never diagonal. */
-function snapToCardinal(x: number, y: number): { x: number; y: number } {
-  if (x === 0 && y === 0) return { x: 0, y: 0 };
-  return Math.abs(x) >= Math.abs(y) ? { x: Math.sign(x), y: 0 } : { x: 0, y: Math.sign(y) };
 }
 
 /**
@@ -634,8 +629,10 @@ export class GameScene extends Phaser.Scene {
     this.room.send("launch", { dirX: dir.x, dirY: dir.y, power, seq: this.launchSeq });
 
     // Own dash plays at 0ms rather than waiting for the server's event, matching the optimistic launch itself.
-    // Gated on TP because a dash with an empty tank is refused by both sims and should stay silent.
-    if (ninja.tp > 0) this.dashEffect(this.localId, ninja.x, ninja.y, 0.5);
+    // Gated on the real landing distance, since both sims refuse a dash that can't reach the next cell.
+    if (dashDistanceFor(ninja, dir, power, DOJO_ARENA.grid) > 0) {
+      this.dashEffect(this.localId, ninja.x, ninja.y, 0.5);
+    }
   }
 
   private drawAimLine(): void {
@@ -652,10 +649,10 @@ export class GameScene extends Phaser.Scene {
     this.aimGfx.lineStyle(3, 0xffffff, 0.6);
     this.aimGfx.lineBetween(ninja.x, ninja.y, this.pointerX, this.pointerY);
 
-    // Launch preview: exactly where the dash will land, 1:1 with the drag, so the arrow shows the real destination.
-    // Capped by current TP too — as the hold charges TP, the preview grows in real time to match.
-    const previewLen = Math.min(power * maxDashDistanceOf(ninja), ninja.tp);
+    // Launch preview: the sim's own landing distance, so the arrow ends on the cell the dash will actually
+    // reach. Capped by current TP too — as the hold charges TP, the preview grows a cell at a time to match.
     const dir = snapToCardinal(dragX, dragY);
+    const previewLen = dashDistanceFor(ninja, dir, power, DOJO_ARENA.grid);
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;
     this.aimGfx.lineStyle(4, 0xffd166, 0.9);
@@ -708,7 +705,8 @@ export class GameScene extends Phaser.Scene {
       const box = map.obstacles[i];
       const obstacle = state.obstacles[i];
       if (!box || !obstacle || !obstacle.alive) continue;
-      const healthFrac = clamp(obstacle.hp / OBSTACLE_HP, 0, 1);
+      // Faded against the box's own starting HP, so hay and crates both read as fresh-to-broken.
+      const healthFrac = clamp(obstacle.hp / box.hp, 0, 1);
       const color = Phaser.Display.Color.Interpolate.ColorWithColor(
         new Phaser.Display.Color(120, 40, 40),
         new Phaser.Display.Color(200, 170, 60),

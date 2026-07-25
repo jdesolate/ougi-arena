@@ -4,6 +4,13 @@ export const SIM_TICK_RATE_HZ = 30;
 /** Fixed timestep in seconds. Never derive this from wall-clock delta — determinism depends on it. */
 export const SIM_DT = 1 / SIM_TICK_RATE_HZ;
 
+/**
+ * The arena's single spatial quantum: maps are authored one character per cell, an obstacle fills exactly one,
+ * and a dash lands on a cell centre. 1280x720 inside a 40-unit border is exactly 15x8 of these, and a full-TP
+ * dash is 5 — so ranges read as tiles rather than pixels.
+ */
+export const CELL = 80;
+
 /** Ninja body radius in world units. */
 export const NINJA_RADIUS = 18;
 
@@ -66,8 +73,12 @@ export const KNOCKBACK_BONUS = 90;
 /** Impact speed below which a contact is treated as a nudge: no event, no damage. */
 export const MIN_IMPACT_SPEED = 120;
 
-/** Destructible obstacle tuning. */
-export const OBSTACLE_HP = 100;
+/**
+ * Destructible tiers. Starting HP lives per-obstacle in map data rather than globally, so a corner of hay
+ * clears in a single hit while a crate takes a committed dash; these are just the two authored defaults.
+ */
+export const CRATE_HP = 100;
+export const HAY_HP = 40;
 export const OBSTACLE_DAMAGE_PER_IMPACT_SPEED = 0.22;
 
 /** Extra separation applied when resolving overlap, to stop bodies re-colliding on the next tick. */

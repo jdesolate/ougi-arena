@@ -1,22 +1,40 @@
 import { describe, expect, it } from "vitest";
 import {
+  CELL,
   LAUNCH_SPEED_MAX,
   MAX_DASH_DISTANCE,
   MAX_HP,
   MAX_TP,
   MIN_IMPACT_SPEED,
   NINJA_RADIUS,
-  OBSTACLE_HP,
   RESPAWN_DELAY_TICKS,
   RESPAWN_HP_FRACTION,
   RESPAWN_INVULN_TICKS,
   SIM_DT,
   SP_GAIN_ON_KO,
 } from "./constants.js";
+import { cellCentre } from "./grid.js";
 import { DOJO_ARENA } from "./map.js";
 import { applyLaunch, createNinja, createSimState, resetObstacles, spawnPointFor, step } from "./sim.js";
 import { lengthOf } from "./math.js";
-import type { SimCommand, SimState } from "./types.js";
+import { OPEN_ARENA } from "./test-arena.js";
+import type { LaunchCommand, SimCommand, SimState } from "./types.js";
+
+const GRID = OPEN_ARENA.grid;
+
+/** Most tests want clear floor to measure a dash on, not whichever pillar the dojo's layout happens to have. */
+function openState(ids: string[]): SimState {
+  return createSimState(ids, OPEN_ARENA);
+}
+
+function launch(ninjaId: string, dirX: number, dirY: number, power: number): LaunchCommand {
+  return { type: "launch", ninjaId, dirX, dirY, power };
+}
+
+/** Whole number when the coordinate sits on a cell centre; fractional when the ninja is off-grid. */
+function cellOffsetOf(v: number): number {
+  return (v - GRID.originX) / CELL - 0.5;
+}
 
 function speedOf(state: SimState, id: string): number {
   const ninja = state.ninjas.find((n) => n.id === id)!;
@@ -43,7 +61,9 @@ describe("createSimState", () => {
       expect(ninja.vx).toBe(0);
     });
     expect(state.obstacles).toHaveLength(DOJO_ARENA.obstacles.length);
-    expect(state.obstacles.every((o) => o.alive && o.hp === OBSTACLE_HP)).toBe(true);
+    // Each box starts on its own authored tier HP, so hay and crates are already distinguishable here.
+    expect(state.obstacles.every((o) => o.alive && o.hp === o.maxHp)).toBe(true);
+    expect(state.obstacles.map((o) => o.maxHp)).toEqual(DOJO_ARENA.obstacles.map((o) => o.hp));
   });
 
   it("wraps spawn indices past the map's spawn count", () => {
@@ -52,82 +72,129 @@ describe("createSimState", () => {
 });
 
 describe("applyLaunch", () => {
-  it("normalises the drag direction and maps power onto the speed range", () => {
-    const ninja = createNinja("a", { x: 0, y: 0 });
+  it("snaps a diagonal drag onto one cardinal axis and maps power onto the speed range", () => {
+    const ninja = createNinja("a", cellCentre(GRID, 2, 2));
 
-    expect(applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 3, dirY: 4, power: 1 })).toBeCloseTo(
-      LAUNCH_SPEED_MAX,
-    );
+    expect(applyLaunch(ninja, launch("a", 3, 4, 1), GRID)).toBeCloseTo(LAUNCH_SPEED_MAX);
+    // The drag leaned vertical, so the whole dash is vertical — cardinal-only movement is a sim rule now.
+    expect(ninja.vx).toBe(0);
     expect(lengthOf(ninja.vx, ninja.vy)).toBeCloseTo(LAUNCH_SPEED_MAX);
-    expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX * 0.6);
     expect(ninja.dashBudget).toBeCloseTo(MAX_DASH_DISTANCE);
   });
 
+  it("lands a full-power dash exactly five cells away", () => {
+    const ninja = createNinja("a", cellCentre(GRID, 1, 3));
+
+    applyLaunch(ninja, launch("a", 1, 0, 1), GRID);
+
+    expect(ninja.dashBudget).toBe(5 * CELL);
+    expect(MAX_DASH_DISTANCE).toBe(5 * CELL);
+  });
+
   it("clamps power outside 0..1 and ignores a zero-length drag", () => {
-    const ninja = createNinja("a", { x: 0, y: 0 });
+    const ninja = createNinja("a", cellCentre(GRID, 2, 2));
 
     // Power clamps to 0, so distance clamps to 0 too — that's the same "nothing happens" case as a
     // zero-length drag below, so vx stays untouched rather than getting a moot LAUNCH_SPEED_MIN.
-    expect(applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: -3 })).toBe(0);
+    expect(applyLaunch(ninja, launch("a", 1, 0, -3), GRID)).toBe(0);
     expect(ninja.vx).toBe(0);
 
-    applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 9 });
+    applyLaunch(ninja, launch("a", 1, 0, 9), GRID);
     expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX);
 
-    expect(applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 0, dirY: 0, power: 1 })).toBe(0);
+    expect(applyLaunch(ninja, launch("a", 0, 0, 1), GRID)).toBe(0);
     expect(ninja.vx).toBeCloseTo(LAUNCH_SPEED_MAX);
   });
 
-  it("caps dash distance and TP spend to whatever TP remains", () => {
-    const ninja = createNinja("a", { x: 0, y: 0 });
+  it("caps dash distance to whatever TP remains, then down to the cell inside it", () => {
+    const ninja = createNinja("a", cellCentre(GRID, 2, 2));
     ninja.tp = 100;
 
-    const speed = applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 });
+    const speed = applyLaunch(ninja, launch("a", 1, 0, 1), GRID);
 
+    // 100 TP buys a cell and a quarter; the quarter is refused rather than rounded up, and stays in the tank.
     expect(speed).toBeCloseTo(LAUNCH_SPEED_MAX);
-    expect(ninja.dashBudget).toBeCloseTo(100);
-    expect(ninja.tp).toBeCloseTo(0);
+    expect(ninja.dashBudget).toBe(CELL);
+    expect(ninja.tp).toBeCloseTo(100 - CELL);
+  });
+
+  it("refuses a dash that can't reach the next cell at all", () => {
+    const ninja = createNinja("a", cellCentre(GRID, 2, 2));
+    ninja.tp = CELL / 4;
+
+    expect(applyLaunch(ninja, launch("a", 1, 0, 1), GRID)).toBe(0);
+    expect(ninja.dashBudget).toBe(0);
+    expect(ninja.tp).toBe(CELL / 4);
   });
 
   it("refuses to launch a ninja with no TP left", () => {
-    const ninja = createNinja("a", { x: 0, y: 0 });
+    const ninja = createNinja("a", cellCentre(GRID, 2, 2));
     ninja.tp = 0;
 
-    const speed = applyLaunch(ninja, { type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 });
-
-    expect(speed).toBe(0);
+    expect(applyLaunch(ninja, launch("a", 1, 0, 1), GRID)).toBe(0);
     expect(ninja.dashBudget).toBe(0);
+  });
+
+  it("pulls a ninja knocked off-grid back onto it, without overspending TP", () => {
+    const ninja = createNinja("a", { x: cellCentre(GRID, 2, 2).x + 23, y: cellCentre(GRID, 2, 2).y });
+    const before = ninja.tp;
+
+    applyLaunch(ninja, launch("a", 1, 0, 1), GRID);
+    const landing = ninja.x + ninja.dashBudget;
+
+    expect(landing).toBe(cellCentre(GRID, 7, 2).x);
+    expect(before - ninja.tp).toBe(ninja.dashBudget);
+    expect(ninja.dashBudget).toBeLessThan(MAX_DASH_DISTANCE);
   });
 });
 
 describe("step", () => {
   it("advances the tick counter once per call", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     step(state);
     step(state);
     expect(state.tick).toBe(2);
   });
 
-  it("dashes at constant speed and lands exactly on the target point, not short of it", () => {
-    const state = createSimState(["a"]);
+  it("dashes at constant speed and lands exactly on the cell centre it aimed at", () => {
+    const state = openState(["a"]);
     const ninja = state.ninjas[0]!;
-    ninja.x = 100;
-    ninja.y = 100;
+    const start = cellCentre(GRID, 0, 1);
+    ninja.x = start.x;
+    ninja.y = start.y;
 
-    const events = step(state, [{ type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 1 }]);
+    const events = step(state, [launch("a", 1, 0, 1)]);
     expect(events).toEqual([{ type: "launch", ninjaId: "a", speed: LAUNCH_SPEED_MAX }]);
     // No damping tail: every tick but the last, clipped one covers exactly one timestep of launch speed.
-    expect(ninja.x - 100).toBeCloseTo(LAUNCH_SPEED_MAX * SIM_DT);
+    expect(ninja.x - start.x).toBeCloseTo(LAUNCH_SPEED_MAX * SIM_DT);
 
     for (let i = 0; i < 120; i++) step(state);
 
-    expect(ninja.x).toBeCloseTo(100 + MAX_DASH_DISTANCE);
+    expect(ninja.x).toBeCloseTo(cellCentre(GRID, 5, 1).x);
     expect(speedOf(state, "a")).toBe(0);
     expect(ninja.dashBudget).toBe(0);
   });
 
+  it("re-aligns a ninja hard-stopped mid-cell on its very next dash", () => {
+    const state = openState(["a"]);
+    const ninja = state.ninjas[0]!;
+    const obstacle = state.obstacles[0]!;
+    ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 200;
+    ninja.y = obstacle.y;
+
+    // Dash into the crate: the hard stop leaves the ninja parked off-grid, hugging the box.
+    for (let i = 0; i < 40; i++) step(state, i === 0 ? [launch("a", 1, 0, 1)] : []);
+    expect(cellOffsetOf(ninja.x)).not.toBe(Math.round(cellOffsetOf(ninja.x)));
+
+    // The destination is what snaps, so the next dash re-aligns it with no separate realignment logic.
+    ninja.tp = MAX_TP;
+    for (let i = 0; i < 40; i++) step(state, i === 0 ? [launch("a", -1, 0, 0.5)] : []);
+
+    expect(cellOffsetOf(ninja.x)).toBeCloseTo(Math.round(cellOffsetOf(ninja.x)), 6);
+  });
+
   it("ends a dash left with budget but no velocity, so nothing is stranded mid-dash", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const ninja = state.ninjas[0]!;
     ninja.dashBudget = 200;
     ninja.dashLethal = true;
@@ -143,38 +210,36 @@ describe("step", () => {
   });
 
   it("ignores commands for unknown or inactive ninjas", () => {
-    const state = createSimState(["a", "b"]);
+    const state = openState(["a", "b"]);
     state.ninjas[1]!.active = false;
 
-    const events = step(state, [
-      { type: "launch", ninjaId: "ghost", dirX: 1, dirY: 0, power: 1 },
-      { type: "launch", ninjaId: "b", dirX: 1, dirY: 0, power: 1 },
-    ]);
+    const events = step(state, [launch("ghost", 1, 0, 1), launch("b", 1, 0, 1)]);
 
     expect(events).toHaveLength(0);
     expect(speedOf(state, "b")).toBe(0);
   });
 
   it("stops a ninja at a wall instead of bouncing, and reports the impact", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const ninja = state.ninjas[0]!;
-    ninja.x = 100;
-    ninja.y = 100;
+    const start = cellCentre(GRID, 1, 1);
+    ninja.x = start.x;
+    ninja.y = start.y;
 
     let wallHits = 0;
     for (let i = 0; i < 30; i++) {
-      const events = step(state, i === 0 ? [{ type: "launch", ninjaId: "a", dirX: -1, dirY: 0, power: 1 }] : []);
+      const events = step(state, i === 0 ? [launch("a", -1, 0, 1)] : []);
       wallHits += events.filter((e) => e.type === "wallHit").length;
     }
 
     expect(wallHits).toBeGreaterThan(0);
-    expect(ninja.x).toBeGreaterThanOrEqual(40 + NINJA_RADIUS);
+    expect(ninja.x).toBeGreaterThanOrEqual(GRID.originX + NINJA_RADIUS);
     expect(ninja.vx).toBe(0);
     expect(ninja.dashBudget).toBe(0);
   });
 
   it("damages an obstacle and stops the dash when the hit does not break it", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const obstacle = state.obstacles[0]!;
     obstacle.hp = 10_000;
 
@@ -195,7 +260,7 @@ describe("step", () => {
   });
 
   it("shatters an obstacle on a hard hit but still stops the dash there", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const obstacle = state.obstacles[0]!;
     const ninja = state.ninjas[0]!;
     ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 5;
@@ -213,7 +278,7 @@ describe("step", () => {
   });
 
   it("leaves a destroyed obstacle out of the sim on later ticks", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const obstacle = state.obstacles[0]!;
     obstacle.alive = false;
 
@@ -229,7 +294,7 @@ describe("step", () => {
   });
 
   it("ignores nudges below the impact threshold", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const obstacle = state.obstacles[0]!;
     const ninja = state.ninjas[0]!;
     ninja.x = obstacle.x - obstacle.halfW - NINJA_RADIUS - 1;
@@ -240,11 +305,11 @@ describe("step", () => {
     const events = step(state);
 
     expect(events).toHaveLength(0);
-    expect(obstacle.hp).toBe(OBSTACLE_HP);
+    expect(obstacle.hp).toBe(obstacle.maxHp);
   });
 
   it("a live dash shatters the ninja it reaches instead of bouncing off it", () => {
-    const state = createSimState(["a", "b"]);
+    const state = openState(["a", "b"]);
     const [a, b] = state.ninjas as [(typeof state.ninjas)[number], (typeof state.ninjas)[number]];
     a.x = 300;
     a.y = 300;
@@ -267,7 +332,7 @@ describe("step", () => {
   });
 
   it("an invulnerable ninja can't be shattered", () => {
-    const state = createSimState(["a", "b"]);
+    const state = openState(["a", "b"]);
     const [a, b] = state.ninjas as [(typeof state.ninjas)[number], (typeof state.ninjas)[number]];
     a.x = 300;
     a.y = 300;
@@ -288,7 +353,7 @@ describe("step", () => {
   });
 
   it("never regenerates TP on its own — only while charging", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const ninja = state.ninjas[0]!;
     ninja.tp = 0;
     ninja.charging = false;
@@ -298,7 +363,7 @@ describe("step", () => {
   });
 
   it("charges TP while held, up to the max, and stops the instant a dash fires", () => {
-    const state = createSimState(["a"]);
+    const state = openState(["a"]);
     const ninja = state.ninjas[0]!;
     ninja.tp = 0;
     ninja.charging = true;
@@ -309,12 +374,13 @@ describe("step", () => {
     for (let i = 0; i < 1000; i++) step(state);
     expect(ninja.tp).toBe(MAX_TP);
 
-    step(state, [{ type: "launch", ninjaId: "a", dirX: 1, dirY: 0, power: 0.1 }]);
+    // Power has to buy at least a whole cell now, or the launch is refused and the hold would carry on.
+    step(state, [launch("a", 1, 0, CELL / MAX_DASH_DISTANCE)]);
     expect(ninja.charging).toBe(false);
   });
 
   it("respawns a KO'd ninja after the delay with reduced HP and fresh invulnerability", () => {
-    const state = createSimState(["a", "b"]);
+    const state = openState(["a", "b"]);
     const ninja = state.ninjas[1]!;
     ninja.active = false;
     ninja.hp = 0;
@@ -336,7 +402,7 @@ describe("step", () => {
 
     resetObstacles(state);
 
-    expect(state.obstacles.every((o) => o.alive && o.hp === OBSTACLE_HP)).toBe(true);
+    expect(state.obstacles.every((o) => o.alive && o.hp === o.maxHp)).toBe(true);
     expect(state.ninjas[0]!.x).toBe(500);
   });
 });

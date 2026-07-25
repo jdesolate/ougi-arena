@@ -9,17 +9,18 @@ import {
   NINJA_RADIUS,
   NINJA_RESTITUTION,
   OBSTACLE_DAMAGE_PER_IMPACT_SPEED,
-  OBSTACLE_HP,
   RESPAWN_HP_FRACTION,
   RESPAWN_INVULN_TICKS,
   SIM_DT,
   TP_CHARGE_PER_TICK,
 } from "./constants.js";
 import { isVulnerable, shatterNinja } from "./damage.js";
-import { clamp, lengthOf } from "./math.js";
+import { snapDashDistance } from "./grid.js";
+import { clamp, lengthOf, snapToCardinal } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
 import { DEFAULT_CHARACTER_ID, fireOugi, maxTpOf, tickOugi } from "./ougi.js";
 import type {
+  ArenaGrid,
   ArenaMap,
   LaunchCommand,
   NinjaState,
@@ -89,7 +90,8 @@ function createObstacles(map: ArenaMap): ObstacleState[] {
     y: box.y,
     halfW: box.halfW,
     halfH: box.halfH,
-    hp: OBSTACLE_HP,
+    hp: box.hp,
+    maxHp: box.hp,
     alive: true,
   }));
 }
@@ -120,19 +122,28 @@ export function maxDashDistanceOf(ninja: NinjaState): number {
   return MAX_DASH_DISTANCE * ninja.dashRangeMultiplier;
 }
 
-/** Shared by the authoritative tick and the client's optimistic launch, so both produce the same velocity. */
-export function applyLaunch(ninja: NinjaState, command: LaunchCommand): number {
-  const len = lengthOf(command.dirX, command.dirY);
-  if (len === 0) return 0;
+/**
+ * How far a launch actually carries: capped by TP (spent 1:1 per world unit, so a drained ninja falls short of
+ * a full-power reach), then resolved to a cell centre. Exported so the client's aim preview draws the exact
+ * point the sim will land on rather than an approximation of it.
+ */
+export function dashDistanceFor(ninja: NinjaState, dir: Vec2, power: number, grid: ArenaGrid): number {
+  const reach = Math.min(clamp(power, 0, 1) * maxDashDistanceOf(ninja), ninja.tp);
+  if (dir.x !== 0) return snapDashDistance(ninja.x, dir.x, reach, grid.originX);
+  if (dir.y !== 0) return snapDashDistance(ninja.y, dir.y, reach, grid.originY);
+  return 0;
+}
 
+/** Shared by the authoritative tick and the client's optimistic launch, so both produce the same velocity. */
+export function applyLaunch(ninja: NinjaState, command: LaunchCommand, grid: ArenaGrid): number {
+  const dir = snapToCardinal(command.dirX, command.dirY);
   const power = clamp(command.power, 0, 1);
-  // TP is spent 1:1 per world unit dashed, so a drained ninja's dash falls short of a full-power reach.
-  const distance = Math.min(power * maxDashDistanceOf(ninja), ninja.tp);
+  const distance = dashDistanceFor(ninja, dir, power, grid);
   if (distance <= 0) return 0;
 
   const speed = LAUNCH_SPEED_MIN + (LAUNCH_SPEED_MAX - LAUNCH_SPEED_MIN) * power;
-  ninja.vx = (command.dirX / len) * speed;
-  ninja.vy = (command.dirY / len) * speed;
+  ninja.vx = dir.x * speed;
+  ninja.vy = dir.y * speed;
   ninja.dashBudget = distance;
   ninja.dashLethal = true;
   ninja.tp -= distance;
@@ -238,7 +249,7 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
       continue;
     }
 
-    const speed = applyLaunch(ninja, command);
+    const speed = applyLaunch(ninja, command, state.map.grid);
     if (speed > 0) events.push({ type: "launch", ninjaId: ninja.id, speed });
   }
 

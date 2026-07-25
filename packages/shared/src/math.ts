@@ -1,7 +1,16 @@
-import type { Aabb } from "./types.js";
+import type { Aabb, Vec2 } from "./types.js";
 
 export function clamp(v: number, min: number, max: number): number {
   return v < min ? min : v > max ? max : v;
+}
+
+/**
+ * Nindou-style movement: dashes only go up/down/left/right, never diagonal, resolving to the dominant axis.
+ * Enforced in the sim rather than only at the input layer, so cell snapping always has one axis to work on.
+ */
+export function snapToCardinal(x: number, y: number): Vec2 {
+  if (x === 0 && y === 0) return { x: 0, y: 0 };
+  return Math.abs(x) >= Math.abs(y) ? { x: Math.sign(x), y: 0 } : { x: 0, y: Math.sign(y) };
 }
 
 /**

@@ -11,25 +11,25 @@ import {
   SURGE_DASH_MULTIPLIER,
   SURGE_DURATION_TICKS,
 } from "./constants.js";
-import { DOJO_ARENA } from "./map.js";
 import { CHARACTERS, ougiForCharacter } from "./ougi.js";
 import { applyLaunch, createSimState, step } from "./sim.js";
+import { OPEN_ARENA } from "./test-arena.js";
 import type { SimCommand, SimState } from "./types.js";
 
 const EMBER = "ember";
 const GALE = "gale";
 const SHADE = "shade";
 
-/** Open floor well clear of the obstacle grid, so an Ougi test only measures the Ougi. */
+/** Open floor, the arena's single crate well out of reach, so an Ougi test only measures the Ougi. */
 const CLEAR_X = 200;
-const CLEAR_Y = 360;
+const CLEAR_Y = 400;
 
 function arena(characterIds: string[]): SimState {
   const ids = characterIds.map((_, i) => String.fromCharCode(97 + i));
-  const state = createSimState(ids, DOJO_ARENA, characterIds);
+  const state = createSimState(ids, OPEN_ARENA, characterIds);
   // Park everyone out of the way; each test then places only the ninjas it cares about.
   state.ninjas.forEach((ninja, i) => {
-    ninja.x = DOJO_ARENA.width - 100;
+    ninja.x = OPEN_ARENA.width - 100;
     ninja.y = 100 + i * 60;
   });
   return state;
@@ -143,7 +143,7 @@ describe("shockwave", () => {
   it("clears destructible cover inside the blast", () => {
     const state = arena([EMBER]);
     const a = state.ninjas[0]!;
-    const target = state.obstacles[7]!;
+    const target = state.obstacles[0]!;
     a.x = target.x;
     a.y = target.y - 60;
     a.sp = MAX_SP;
@@ -166,7 +166,7 @@ describe("surge", () => {
     expect(a.dashRangeMultiplier).toBe(SURGE_DASH_MULTIPLIER);
     expect(a.tp).toBe(MAX_TP * SURGE_DASH_MULTIPLIER);
 
-    const buffed = applyLaunch(a, { type: "launch", ninjaId: "a", dirX: 0, dirY: 1, power: 1 });
+    const buffed = applyLaunch(a, { type: "launch", ninjaId: "a", dirX: 0, dirY: 1, power: 1 }, OPEN_ARENA.grid);
     expect(buffed).toBeGreaterThan(0);
     expect(a.dashBudget).toBe(MAX_TP * SURGE_DASH_MULTIPLIER);
 
@@ -247,7 +247,7 @@ describe("cross slash", () => {
     const state = arena([SHADE, EMBER]);
     const [a, b] = state.ninjas as [SimState["ninjas"][number], SimState["ninjas"][number]];
     // Between the first two obstacle rows, so the beam's first blocker is `cover` and `b` sits behind it.
-    const cover = state.obstacles[7]!;
+    const cover = state.obstacles[0]!;
     a.x = cover.x;
     a.y = cover.y - 80;
     b.x = cover.x;
@@ -265,7 +265,7 @@ describe("cross slash", () => {
     const state = arena([SHADE, EMBER]);
     const [a, b] = state.ninjas as [SimState["ninjas"][number], SimState["ninjas"][number]];
     // Hugging the top edge of a box: it clips the horizontal lane but sits beside the caster, not ahead.
-    const cover = state.obstacles[7]!;
+    const cover = state.obstacles[0]!;
     a.x = cover.x;
     a.y = cover.y - cover.halfH - a.radius;
     b.x = cover.x - 260;
@@ -309,8 +309,8 @@ describe("determinism", () => {
     };
 
     const characterIds = [EMBER, GALE, SHADE];
-    const a = createSimState(["a", "b", "c"], DOJO_ARENA, characterIds);
-    const b = createSimState(["a", "b", "c"], DOJO_ARENA, characterIds);
+    const a = createSimState(["a", "b", "c"], OPEN_ARENA, characterIds);
+    const b = createSimState(["a", "b", "c"], OPEN_ARENA, characterIds);
     script(a);
     script(b);
 

@@ -5,7 +5,7 @@ import { parseArenaMap } from "./map.js";
  * Tests that measure a mechanic — dash distance, an Ougi's reach — use this so they never accidentally measure
  * whichever pillar the authored dojo happens to have moved since.
  */
-export const OPEN_ARENA = parseArenaMap("open", [
+export const OPEN_ARENA = parseArenaMap("open", "Open", [
   "1.............2",
   "...............",
   "...............",

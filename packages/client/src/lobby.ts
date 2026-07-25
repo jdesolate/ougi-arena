@@ -1,10 +1,11 @@
 import type { Room } from "colyseus.js";
-import { CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
+import { ARENAS, CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
 import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
 import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
 import { playUiSfx } from "./audio/sfx.js";
 import { skinFor } from "./skins.js";
 import { drawPortrait } from "./ui/portrait.js";
+import { drawMapThumb } from "./ui/map-thumb.js";
 
 const NICKNAME_MAX_LENGTH = 16;
 const RECONNECT_STORAGE_KEY = "ougi-arena:reconnect";
@@ -79,6 +80,8 @@ export function initLobby(onStart: (room: Room) => void): void {
   const spectateNoteEl = el<HTMLParagraphElement>("spectate-note");
   const startBtn = el<HTMLButtonElement>("start-btn");
   const waitingNoteEl = el<HTMLParagraphElement>("waiting-note");
+  const mapSelectEl = el<HTMLDivElement>("map-select");
+  const mapNoteEl = el<HTMLParagraphElement>("map-note");
   const quickPlayBtn = el<HTMLButtonElement>("quick-play-btn");
   const roomListEl = el<HTMLUListElement>("room-list");
   const roomListEmptyEl = el<HTMLParagraphElement>("room-list-empty");
@@ -90,8 +93,43 @@ export function initLobby(onStart: (room: Room) => void): void {
     errorEl.textContent = message;
   }
 
+  /** Cards are cheap to keep in sync, so everyone sees the choice; only the host can change it. */
+  const mapCards = new Map<string, HTMLButtonElement>();
+
+  function renderMap(mapId: string, isHost: boolean): void {
+    for (const [id, card] of mapCards) {
+      card.setAttribute("aria-pressed", String(id === mapId));
+      card.disabled = !isHost;
+    }
+    mapNoteEl.hidden = isHost;
+  }
+
+  function buildMapCards(room: Room): void {
+    for (const map of ARENAS) {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "map-card";
+      card.setAttribute("aria-pressed", "false");
+
+      const canvas = document.createElement("canvas");
+      drawMapThumb(canvas, map);
+
+      const name = document.createElement("span");
+      name.textContent = map.name;
+
+      card.append(canvas, name);
+      // The server echo drives selection rather than an optimistic local flip — it's a lobby, latency is free.
+      card.addEventListener("click", () => {
+        room.send("map", { mapId: map.id });
+        playUiSfx("select");
+      });
+      mapSelectEl.appendChild(card);
+      mapCards.set(map.id, card);
+    }
+  }
+
   function renderPlayers(room: Room): void {
-    const state = room.state as { phase: string; players: Map<string, PlayerView> };
+    const state = room.state as { phase: string; mapId: string; players: Map<string, PlayerView> };
     playerListEl.innerHTML = "";
 
     let me: PlayerView | undefined;
@@ -110,6 +148,7 @@ export function initLobby(onStart: (room: Room) => void): void {
     spectateNoteEl.hidden = !me?.spectating;
     startBtn.hidden = !me?.isHost;
     waitingNoteEl.hidden = Boolean(me?.isHost);
+    renderMap(state.mapId, me?.isHost ?? false);
 
     if (state.phase === "playing" && !matchStarted) {
       matchStarted = true;
@@ -135,6 +174,7 @@ export function initLobby(onStart: (room: Room) => void): void {
     // Keep the query string: the room code goes in the path, but `?debug` has to survive into the match.
     history.replaceState(null, "", `/r/${room.roomId}${window.location.search}`);
 
+    buildMapCards(room);
     room.onStateChange(() => renderPlayers(room));
     startBtn.addEventListener("click", () => room.send("start"));
     copyLinkBtn.addEventListener("click", () => {

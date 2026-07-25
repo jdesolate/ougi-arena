@@ -5,9 +5,18 @@ const SPARK_TEXTURE_KEY = "spark";
 
 export const DEPTH_WORLD = 0;
 export const DEPTH_PARTICLES = 5;
-export const DEPTH_NINJA = 10;
-export const DEPTH_OVERLAY = 20;
-export const DEPTH_AIM = 30;
+/**
+ * Ninjas and pillars share one depth band ordered by world y, so a pillar occludes whoever is standing behind
+ * it. The band is wide enough for the tallest arena, and everything above it is screen-space furniture.
+ */
+export const DEPTH_YSORT_BASE = 100;
+export const DEPTH_OVERLAY = 1000;
+export const DEPTH_AIM = 1010;
+
+/** Depth for a y-sorted object, keyed off the bottom of its footprint rather than its centre. */
+export function ySortDepth(bottomY: number): number {
+  return DEPTH_YSORT_BASE + bottomY;
+}
 
 /**
  * The juice layer: particle bursts, camera shake and hit-pause. Kept out of `GameScene` so the scene stays

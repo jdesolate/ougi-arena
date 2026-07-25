@@ -66,12 +66,18 @@ export interface ArenaGrid {
 
 export interface ArenaMap {
   id: string;
+  /** Display name for the lobby's map picker; the id is what syncs. */
+  name: string;
   width: number;
   height: number;
   /** Dash destinations snap to this grid's cell centres, which is what keeps the board self-aligning. */
   grid: ArenaGrid;
-  /** Indestructible geometry: the arena border plus any stone pillars. */
+  /** Indestructible geometry the sim collides against: `border` and `pillars` concatenated. */
   walls: Aabb[];
+  /** The arena's outer frame. Split out from `pillars` only because the two render differently. */
+  border: Aabb[];
+  /** Stone pillars, the cover that forms the choke points. Tall enough that the renderer Y-sorts them. */
+  pillars: Aabb[];
   /** Destructible boxes, reset from this template at match start. */
   obstacles: ObstacleTemplate[];
   spawns: Vec2[];

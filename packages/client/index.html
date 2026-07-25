@@ -169,6 +169,47 @@
         height: 48px;
         image-rendering: pixelated;
       }
+      #map-select {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .map-card {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        padding: 6px;
+        background: #22223f;
+        border: 2px solid transparent;
+        border-radius: 6px;
+        color: #eee;
+        font: inherit;
+        font-size: 0.8rem;
+        text-align: center;
+        cursor: pointer;
+      }
+      .map-card:hover:not([disabled]) {
+        background: #2c2c50;
+      }
+      .map-card[aria-pressed="true"] {
+        border-color: #ffd166;
+        background: #2c2c50;
+      }
+      .map-card[disabled] {
+        cursor: default;
+      }
+      .map-card canvas {
+        width: 100%;
+        height: auto;
+        border-radius: 2px;
+        image-rendering: pixelated;
+      }
+      #map-note {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #aaa;
+      }
       #hud-timer.urgent {
         color: #ff6b6b;
       }
@@ -232,6 +273,9 @@
       <div id="lobby-room" hidden>
         <p>Room code: <span id="room-code"></span> <button id="copy-link-btn">Copy link</button></p>
         <ul id="player-list"></ul>
+        <h2>Arena</h2>
+        <div id="map-select"></div>
+        <p id="map-note" hidden>The host picks the arena.</p>
         <p id="spectate-note" hidden>You're spectating this match — you'll join the next one.</p>
         <button id="start-btn" hidden>Start match</button>
         <p id="waiting-note">Waiting for the host to start…</p>

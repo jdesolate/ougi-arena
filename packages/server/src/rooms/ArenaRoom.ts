@@ -1,12 +1,14 @@
 import { Room, Client } from "@colyseus/core";
 import { Schema, ArraySchema, MapSchema, type } from "@colyseus/schema";
 import {
+  ARENAS,
   CHARACTERS,
+  DEFAULT_ARENA_ID,
   DEFAULT_CHARACTER_ID,
-  DOJO_ARENA,
   MATCH_DURATION_TICKS,
   SIM_DT,
   SIM_TICK_RATE_HZ,
+  arenaById,
   createSimState,
   step,
   type SimCommand,
@@ -65,6 +67,10 @@ interface ChargeMessage {
   active?: boolean;
 }
 
+interface MapMessage {
+  mapId?: string;
+}
+
 export class PlayerState extends Schema {
   @type("string") nickname = "";
   @type("string") characterId = DEFAULT_CHARACTER_ID;
@@ -104,6 +110,8 @@ export class ObstacleSchema extends Schema {
 
 export class LobbyState extends Schema {
   @type("string") phase: "lobby" | "playing" | "finished" = "lobby";
+  /** Host's map choice; clients resolve the geometry from the shared registry rather than syncing it. */
+  @type("string") mapId = DEFAULT_ARENA_ID;
   @type("number") tick = 0;
   @type("number") matchTimeRemaining = 0;
   @type("boolean") suddenDeath = false;
@@ -139,6 +147,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.setState(new LobbyState());
     this.setPrivate(options.isPrivate === true);
     this.onMessage("start", (client) => this.handleStart(client));
+    this.onMessage("map", (client, message: MapMessage) => this.handleMap(client, message));
     this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
     this.onMessage("charge", (client, message: ChargeMessage) => this.handleCharge(client, message));
     this.onMessage("ougi", (client) => this.handleOugi(client));
@@ -203,6 +212,17 @@ export class ArenaRoom extends Room<LobbyState> {
     this.startMatch();
   }
 
+  /**
+   * Lobby-only on purpose: clients size their canvas from the map once the match starts, so letting the host
+   * swap arenas mid-match (or between rematches) would mean rebuilding the whole scene for no design gain.
+   */
+  private handleMap(client: Client, message: MapMessage): void {
+    const player = this.state.players.get(client.sessionId);
+    if (!player?.isHost || this.state.phase !== "lobby") return;
+    if (!ARENAS.some((arena) => arena.id === message?.mapId)) return;
+    this.state.mapId = message.mapId!;
+  }
+
   private handleRematch(client: Client): void {
     const player = this.state.players.get(client.sessionId);
     if (!player?.isHost || this.state.phase !== "finished") return;
@@ -257,7 +277,7 @@ export class ArenaRoom extends Room<LobbyState> {
 
     const characterIds = activeIds.map((id) => this.state.players.get(id)?.characterId ?? DEFAULT_CHARACTER_ID);
 
-    this.sim = createSimState(activeIds, DOJO_ARENA, characterIds);
+    this.sim = createSimState(activeIds, arenaById(this.state.mapId), characterIds);
     this.commandQueue = [];
     this.pendingAcks = [];
     this.accumulatorMs = 0;

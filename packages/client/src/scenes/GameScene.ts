@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
-  DOJO_ARENA,
+  CELL,
   MAX_HP,
   MAX_SP,
   MAX_TP,
@@ -10,11 +10,14 @@ import {
   clamp,
   createSimState,
   dashDistanceFor,
+  laneDistance,
   lengthOf,
   maxDashDistanceOf,
   ougiForCharacter,
   snapToCardinal,
+  snapToCellCentre,
   step,
+  type ArenaMap,
   type LaunchCommand,
   type SimEvent,
   type SimState,
@@ -28,11 +31,20 @@ import {
 import { ougiSfxKey, playSfx, preloadSfx } from "../audio/sfx.js";
 import {
   DEPTH_AIM,
-  DEPTH_NINJA,
   DEPTH_OVERLAY,
   DEPTH_WORLD,
   MatchEffects,
+  ySortDepth,
 } from "./effects.js";
+import {
+  COLOR_BORDER,
+  COLOR_FLOOR,
+  COLOR_OBSTACLE_BROKEN,
+  COLOR_OBSTACLE_FRESH,
+  COLOR_PILLAR_BODY,
+  COLOR_PILLAR_EDGE,
+  COLOR_PILLAR_TOP,
+} from "../world-palette.js";
 
 const SIM_DT_MS = SIM_DT * 1000;
 /** Caps how many fixed steps run in one frame, so a tab-switch stall can't spiral into a freeze. */
@@ -58,6 +70,11 @@ const HIT_PAUSE_MS = 55;
 const KO_HIT_PAUSE_MS = 110;
 /** The match clock ticks audibly over the closing seconds. */
 const COUNTDOWN_FROM_SECONDS = 5;
+
+/** Runtime-generated, like the spark: a pillar is a flat-shaded block, not art worth shipping a file for. */
+const PILLAR_TEXTURE_KEY = "pillar";
+/** How far a pillar rises above its own cell. This overhang is the whole point of Y-sorting them. */
+const PILLAR_RISE = 34;
 
 /** Loosely-typed view of the server schema — the client bundle doesn't share the schema classes. */
 interface NinjaView {
@@ -88,6 +105,7 @@ interface PlayerView {
 }
 interface ArenaStateView {
   phase: string;
+  mapId: string;
   tick: number;
   matchTimeRemaining: number;
   suddenDeath: boolean;
@@ -115,6 +133,8 @@ interface Snapshot {
 export class GameScene extends Phaser.Scene {
   private readonly room: Room;
   private readonly localId: string;
+  /** The arena the host picked, resolved once from the synced `mapId` — it can't change while a match runs. */
+  private readonly map: ArenaMap;
 
   /** Predicts the local ninja only; remote ninjas come straight from interpolated snapshots. */
   private localSim: SimState | null = null;
@@ -166,10 +186,11 @@ export class GameScene extends Phaser.Scene {
   private corrections = 0;
   private lastCorrectionPx = 0;
 
-  constructor(room: Room) {
+  constructor(room: Room, map: ArenaMap) {
     super("game");
     this.room = room;
     this.localId = room.sessionId;
+    this.map = map;
   }
 
   preload(): void {
@@ -179,6 +200,7 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.worldGfx = this.add.graphics().setDepth(DEPTH_WORLD);
+    this.createPillars();
     this.effects.create();
     this.overlayGfx = this.add.graphics().setDepth(DEPTH_OVERLAY);
     this.aimGfx = this.add.graphics().setDepth(DEPTH_AIM);
@@ -232,6 +254,33 @@ export class GameScene extends Phaser.Scene {
     this.drawWorld();
     if (this.dragging) this.drawAimLine();
     if (!this.debugEl.hidden) this.renderDebug();
+  }
+
+  /**
+   * Pillars are static, so they're placed once as images rather than redrawn every frame. Each sits on the
+   * bottom edge of its own cell and rises `PILLAR_RISE` above it, depth-sorted by that bottom edge — which is
+   * what lets a ninja walk behind one and be occluded instead of sliding over the top of it.
+   */
+  private createPillars(): void {
+    const height = CELL + PILLAR_RISE;
+    if (!this.textures.exists(PILLAR_TEXTURE_KEY)) {
+      const g = this.make.graphics({}, false);
+      g.fillStyle(COLOR_PILLAR_BODY, 1);
+      g.fillRect(0, PILLAR_RISE, CELL, CELL);
+      g.fillStyle(COLOR_PILLAR_TOP, 1);
+      g.fillRect(0, 0, CELL, PILLAR_RISE);
+      // A single dark keyline is enough to separate two adjacent pillars into two blocks.
+      g.lineStyle(2, COLOR_PILLAR_EDGE, 1);
+      g.strokeRect(1, 1, CELL - 2, height - 2);
+      g.lineBetween(0, PILLAR_RISE, CELL, PILLAR_RISE);
+      g.generateTexture(PILLAR_TEXTURE_KEY, CELL, height);
+      g.destroy();
+    }
+
+    for (const pillar of this.map.pillars) {
+      const bottom = pillar.y + pillar.halfH;
+      this.add.image(pillar.x, bottom, PILLAR_TEXTURE_KEY).setOrigin(0.5, 1).setDepth(ySortDepth(bottom));
+    }
   }
 
   private toggleDebug(): void {
@@ -296,13 +345,13 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         case "obstacleHit": {
-          const box = DOJO_ARENA.obstacles[event.obstacleId];
+          const box = this.map.obstacles[event.obstacleId];
           if (!box) break;
           this.effects.burst(box.x, box.y, 0xd8a83c, 8);
           break;
         }
         case "obstacleDestroyed": {
-          const box = DOJO_ARENA.obstacles[event.obstacleId];
+          const box = this.map.obstacles[event.obstacleId];
           if (!box) break;
           this.effects.burst(box.x, box.y, 0xd8a83c, 24);
           this.effects.puff(box.x, box.y, 0x8a6b30, 8);
@@ -517,7 +566,7 @@ export class GameScene extends Phaser.Scene {
     if (!mine) return;
 
     const characterId = this.state().players.get(this.localId)?.characterId;
-    this.localSim = createSimState([this.localId], DOJO_ARENA, characterId ? [characterId] : []);
+    this.localSim = createSimState([this.localId], this.map, characterId ? [characterId] : []);
     const ninja = this.localNinja();
     if (ninja) {
       ninja.x = mine.x;
@@ -630,7 +679,7 @@ export class GameScene extends Phaser.Scene {
 
     // Own dash plays at 0ms rather than waiting for the server's event, matching the optimistic launch itself.
     // Gated on the real landing distance, since both sims refuse a dash that can't reach the next cell.
-    if (dashDistanceFor(ninja, dir, power, DOJO_ARENA.grid) > 0) {
+    if (dashDistanceFor(ninja, dir, power, this.map.grid) > 0) {
       this.dashEffect(this.localId, ninja.x, ninja.y, 0.5);
     }
   }
@@ -651,12 +700,51 @@ export class GameScene extends Phaser.Scene {
 
     // Launch preview: the sim's own landing distance, so the arrow ends on the cell the dash will actually
     // reach. Capped by current TP too — as the hold charges TP, the preview grows a cell at a time to match.
+    // Also capped by cover, since a dash hard-stops on contact: without this the highlight could sit on a tile
+    // behind a pillar, or outside the arena entirely.
     const dir = snapToCardinal(dragX, dragY);
-    const previewLen = dashDistanceFor(ninja, dir, power, DOJO_ARENA.grid);
+    const previewLen = Math.min(
+      dashDistanceFor(ninja, dir, power, this.map.grid),
+      this.clearLaneDistance(ninja.x, ninja.y, dir),
+    );
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;
     this.aimGfx.lineStyle(4, 0xffd166, 0.9);
     this.aimGfx.lineBetween(ninja.x, ninja.y, launchX, launchY);
+
+    // The tile you'll land on, since a dash resolves to a cell centre. Nothing is highlighted when the drag is
+    // too short to reach the next cell, which is the honest read: that release is a no-op.
+    if (previewLen <= 0) return;
+    // Only the launch axis is snapped by the sim, so the other one comes from whichever cell the landing is in.
+    const tileX = snapToCellCentre(launchX, this.map.grid.originX);
+    const tileY = snapToCellCentre(launchY, this.map.grid.originY);
+    this.aimGfx.fillStyle(0xffd166, 0.18);
+    this.aimGfx.fillRect(tileX - CELL / 2, tileY - CELL / 2, CELL, CELL);
+    this.aimGfx.lineStyle(2, 0xffd166, 0.85);
+    this.aimGfx.strokeRect(tileX - CELL / 2, tileY - CELL / 2, CELL, CELL);
+  }
+
+  /**
+   * How far the ninja can travel along `dir` before its body touches the nearest wall or live obstacle — the
+   * same reach the bots measure, minus the body radius the sim stops it at. Presentation only: the sim decides
+   * where a dash really ends, this just stops the preview promising a tile it can't deliver.
+   */
+  private clearLaneDistance(x: number, y: number, dir: { x: number; y: number }): number {
+    let limit = Infinity;
+
+    const consider = (box: Parameters<typeof laneDistance>[3]): void => {
+      const gap = laneDistance(x, y, dir, box, NINJA_RADIUS);
+      if (gap !== null) limit = Math.min(limit, gap - NINJA_RADIUS);
+    };
+
+    for (const wall of this.map.walls) consider(wall);
+    const live = this.state().obstacles;
+    for (let i = 0; i < this.map.obstacles.length; i++) {
+      const box = this.map.obstacles[i];
+      if (box && live[i]?.alive) consider(box);
+    }
+
+    return Math.max(limit, 0);
   }
 
   /** Interpolates a remote ninja ~100ms in the past between the two straddling snapshots. */
@@ -689,15 +777,16 @@ export class GameScene extends Phaser.Scene {
 
   private drawWorld(): void {
     const g = this.worldGfx;
-    const map = DOJO_ARENA;
+    const map = this.map;
     const state = this.state();
     g.clear();
 
-    g.fillStyle(0x0f3460, 1);
+    g.fillStyle(COLOR_FLOOR, 1);
     g.fillRect(0, 0, map.width, map.height);
 
-    g.fillStyle(0x16213e, 1);
-    for (const wall of map.walls) {
+    // Pillars are images placed once in `createPillars`, so only the flat frame is redrawn here.
+    g.fillStyle(COLOR_BORDER, 1);
+    for (const wall of map.border) {
       g.fillRect(wall.x - wall.halfW, wall.y - wall.halfH, wall.halfW * 2, wall.halfH * 2);
     }
 
@@ -708,8 +797,8 @@ export class GameScene extends Phaser.Scene {
       // Faded against the box's own starting HP, so hay and crates both read as fresh-to-broken.
       const healthFrac = clamp(obstacle.hp / box.hp, 0, 1);
       const color = Phaser.Display.Color.Interpolate.ColorWithColor(
-        new Phaser.Display.Color(120, 40, 40),
-        new Phaser.Display.Color(200, 170, 60),
+        Phaser.Display.Color.IntegerToColor(COLOR_OBSTACLE_BROKEN),
+        Phaser.Display.Color.IntegerToColor(COLOR_OBSTACLE_FRESH),
         1,
         healthFrac,
       );
@@ -739,6 +828,8 @@ export class GameScene extends Phaser.Scene {
 
       sprite.setVisible(true);
       sprite.setPosition(pos.x, pos.y);
+      // Re-sorted every frame against the pillars: a ninja's feet decide whether cover is in front of it.
+      sprite.setDepth(ySortDepth(pos.y + NINJA_RADIUS));
       sprite.setAlpha(alpha);
       sprite.setTint(skinFor(this.characterIdOf(serverNinja.id)).bodyColor);
 
@@ -778,10 +869,11 @@ export class GameScene extends Phaser.Scene {
     const existing = this.ninjaSprites.get(ninjaId);
     if (existing) return existing;
 
+    // Depth is set per frame from the ninja's y in `drawWorld`; this is only its starting place in the band.
     const sprite = this.add
       .sprite(0, 0, NINJA_TEXTURE_KEY)
       .setScale(NINJA_SPRITE_SCALE)
-      .setDepth(DEPTH_NINJA);
+      .setDepth(ySortDepth(0));
     this.ninjaSprites.set(ninjaId, sprite);
     return sprite;
   }

@@ -29,6 +29,7 @@ export function koNinja(target: NinjaState, killerId: string, events: SimEvent[]
   target.dashBudget = 0;
   target.dashLethal = false;
   target.charging = false;
+  target.attackCooldown = 0;
   target.ougiTicks = 0;
   target.dashRangeMultiplier = 1;
   target.invulnerableTicks = 0;

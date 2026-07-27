@@ -19,6 +19,7 @@ import { snapDashDistance } from "./grid.js";
 import { clamp, lengthOf, snapToCardinal } from "./math.js";
 import { DOJO_ARENA } from "./map.js";
 import { DEFAULT_CHARACTER_ID, fireOugi, maxTpOf, tickOugi } from "./ougi.js";
+import { DEFAULT_WEAPON_ID, attack } from "./weapon.js";
 import type {
   ArenaGrid,
   ArenaMap,
@@ -40,10 +41,12 @@ export function createNinja(
   id: string,
   spawn: Vec2,
   characterId: string = DEFAULT_CHARACTER_ID,
+  weaponId: string = DEFAULT_WEAPON_ID,
 ): NinjaState {
   return {
     id,
     characterId,
+    weaponId,
     x: spawn.x,
     y: spawn.y,
     vx: 0,
@@ -58,6 +61,10 @@ export function createNinja(
     sp: 0,
     ougiTicks: 0,
     dashRangeMultiplier: 1,
+    // Everyone starts facing down the screen; the first dash or swing takes it from there.
+    facingX: 0,
+    facingY: 1,
+    attackCooldown: 0,
     invulnerableTicks: 0,
     respawnTicks: 0,
   };
@@ -96,17 +103,23 @@ function createObstacles(map: ArenaMap): ObstacleState[] {
   }));
 }
 
-/** `characterIds` is index-aligned with `ninjaIds`; anything missing falls back to the default character. */
+/** `characterIds` and `weaponIds` are index-aligned with `ninjaIds`; anything missing falls back to a default. */
 export function createSimState(
   ninjaIds: string[],
   map: ArenaMap = DOJO_ARENA,
   characterIds: readonly string[] = [],
+  weaponIds: readonly string[] = [],
 ): SimState {
   return {
     tick: 0,
     map,
     ninjas: ninjaIds.map((id, index) =>
-      createNinja(id, spawnPointFor(map, index), characterIds[index] ?? DEFAULT_CHARACTER_ID),
+      createNinja(
+        id,
+        spawnPointFor(map, index),
+        characterIds[index] ?? DEFAULT_CHARACTER_ID,
+        weaponIds[index] ?? DEFAULT_WEAPON_ID,
+      ),
     ),
     obstacles: createObstacles(map),
   };
@@ -142,6 +155,9 @@ export function applyLaunch(ninja: NinjaState, command: LaunchCommand, grid: Are
   if (distance <= 0) return 0;
 
   const speed = LAUNCH_SPEED_MIN + (LAUNCH_SPEED_MAX - LAUNCH_SPEED_MIN) * power;
+  // Facing is whichever of a dash or a swing came last, so a dash aims the next swing.
+  ninja.facingX = dir.x;
+  ninja.facingY = dir.y;
   ninja.vx = dir.x * speed;
   ninja.vy = dir.y * speed;
   ninja.dashBudget = distance;
@@ -249,6 +265,11 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
       continue;
     }
 
+    if (command.type === "attack") {
+      attack(state, ninja, command.dirX, command.dirY, events);
+      continue;
+    }
+
     const speed = applyLaunch(ninja, command, state.map.grid);
     if (speed > 0) events.push({ type: "launch", ninjaId: ninja.id, speed });
   }
@@ -295,6 +316,7 @@ export function step(state: SimState, commands: readonly SimCommand[] = []): Sim
         ninja.tp = Math.min(maxTpOf(ninja), ninja.tp + TP_CHARGE_PER_TICK);
       }
       if (ninja.invulnerableTicks > 0) ninja.invulnerableTicks--;
+      if (ninja.attackCooldown > 0) ninja.attackCooldown--;
       continue;
     }
 
@@ -318,6 +340,7 @@ function respawnNinja(state: SimState, ninja: NinjaState): void {
   ninja.hp = MAX_HP * RESPAWN_HP_FRACTION;
   ninja.tp = MAX_TP;
   ninja.charging = false;
+  ninja.attackCooldown = 0;
   ninja.invulnerableTicks = RESPAWN_INVULN_TICKS;
   ninja.active = true;
 }

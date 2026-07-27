@@ -51,6 +51,19 @@ export const SURGE_DASH_MULTIPLIER = 2;
 /** Cross Slash (Shade): four instant cardinal beams, each stopping at the first wall or live obstacle it cleaves. */
 export const CROSS_SLASH_LANE_HALF_WIDTH = 14;
 
+/**
+ * Weapons. The cell patterns live in `weapon.ts`; these are the two numbers balance actually turns — damage per
+ * swing and how often you may swing. Reach, coverage and speed are deliberately traded against each other:
+ * the kunai has the highest sustained damage but only one cell of reach, the fan the widest cover, the
+ * longsword the biggest single hit. All three chip HP; only a dash can instant-kill.
+ */
+export const KUNAI_DAMAGE = 8;
+export const KUNAI_COOLDOWN_TICKS = 0.3 * SIM_TICK_RATE_HZ;
+export const FAN_DAMAGE = 12;
+export const FAN_COOLDOWN_TICKS = 0.5 * SIM_TICK_RATE_HZ;
+export const LONGSWORD_DAMAGE = 20;
+export const LONGSWORD_COOLDOWN_TICKS = 0.9 * SIM_TICK_RATE_HZ;
+
 /** KO'd ninjas sit out this long before respawning, then are invulnerable for a further window. */
 export const RESPAWN_DELAY_SECONDS = 3;
 export const RESPAWN_DELAY_TICKS = RESPAWN_DELAY_SECONDS * SIM_TICK_RATE_HZ;

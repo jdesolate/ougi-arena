@@ -37,6 +37,13 @@ export interface NinjaState {
   ougiTicks: number;
   /** Generic dash-reach buff an Ougi may set; 1 normally. Ougi buffs live in fields like this so a KO can clear them. */
   dashRangeMultiplier: number;
+  /** Picks the melee attack this ninja swings; an independent choice from `characterId`. */
+  weaponId: string;
+  /** Last cardinal this ninja dashed or swung in. The attack pattern rotates with it, and the renderer orients the sprite by it. */
+  facingX: number;
+  facingY: number;
+  /** Ticks left before this ninja may swing again; an attack arriving during it is dropped, never buffered. */
+  attackCooldown: number;
   /** Ticks left of post-respawn invulnerability; 0 when vulnerable. */
   invulnerableTicks: number;
   /** Ticks left before a KO'd ninja respawns; 0 while alive. */
@@ -106,14 +113,24 @@ export interface OugiCommand {
   ninjaId: string;
 }
 
-export type SimCommand = LaunchCommand | OugiCommand;
+/** Swing this ninja's weapon. `dirX`/`dirY` snap to a cardinal; a zero vector swings where the ninja already faces. */
+export interface AttackCommand {
+  type: "attack";
+  ninjaId: string;
+  dirX: number;
+  dirY: number;
+}
+
+export type SimCommand = LaunchCommand | OugiCommand | AttackCommand;
 
 export type SimEvent =
   | { type: "launch"; ninjaId: string; speed: number }
   | { type: "ougiFired"; ninjaId: string; ougiId: string }
+  | { type: "ninjaAttacked"; ninjaId: string; weaponId: string; dirX: number; dirY: number }
   | { type: "ninjaDamaged"; targetId: string; sourceId: string; amount: number }
   | { type: "ninjaHit"; aId: string; bId: string; impact: number }
   | { type: "wallHit"; ninjaId: string; impact: number }
+  /** `impact` is the closing speed of the dash that caused it, and 0 for a weapon hit — a swing has no speed. */
   | { type: "obstacleHit"; ninjaId: string; obstacleId: number; impact: number; damage: number }
   | { type: "obstacleDestroyed"; ninjaId: string; obstacleId: number }
   | { type: "ninjaKO"; targetId: string; killerId: string };

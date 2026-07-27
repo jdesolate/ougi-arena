@@ -59,7 +59,13 @@ export const CROSS_SLASH_LANE_HALF_WIDTH = 14;
  */
 export const KUNAI_DAMAGE = 8;
 export const KUNAI_COOLDOWN_TICKS = 0.3 * SIM_TICK_RATE_HZ;
-export const FAN_DAMAGE = 12;
+/**
+ * S17 balance pass: was 12 (24 single-target dps, nearly matching kunai/longsword) but the fan hits up to 3
+ * targets per swing, so in a crowd its *aggregate* output triples while the others don't — a live S15 match
+ * showed it out-trading both. Per-target damage now sits clearly below the other two; the coverage itself,
+ * not near-parity damage, is the fan's payoff.
+ */
+export const FAN_DAMAGE = 9;
 export const FAN_COOLDOWN_TICKS = 0.5 * SIM_TICK_RATE_HZ;
 export const LONGSWORD_DAMAGE = 20;
 export const LONGSWORD_COOLDOWN_TICKS = 0.9 * SIM_TICK_RATE_HZ;
@@ -91,7 +97,12 @@ export const MIN_IMPACT_SPEED = 120;
  * clears in a single hit while a crate takes a committed dash; these are just the two authored defaults.
  */
 export const CRATE_HP = 100;
-export const HAY_HP = 40;
+/**
+ * S17 balance pass: was 40. FR-10 promises hay "clears in 1-2 hits", which only held for the longsword (2
+ * hits) — kunai needed 5 and the fan 4. Lowered so every weapon clears a hay bale in 1-2 hits as designed;
+ * a dash impact already one-shots it regardless (unchanged, per S12).
+ */
+export const HAY_HP = 16;
 export const OBSTACLE_DAMAGE_PER_IMPACT_SPEED = 0.22;
 
 /** Extra separation applied when resolving overlap, to stop bodies re-colliding on the next tick. */

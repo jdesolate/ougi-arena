@@ -1,6 +1,6 @@
 # Ougi Arena — Product Requirements Document
 
-**Status:** in development (M6) · **Owner:** Merv · **Last updated:** 2026-07-25
+**Status:** MVP shipped (M7 complete), live at https://ougi-arena.j-desolate53.workers.dev · **Owner:** Merv · **Last updated:** 2026-07-27
 **Companion docs:** [mvp-plan.md](mvp-plan.md) (decisions, milestones, session plan)
 
 ## 1. Overview

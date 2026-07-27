@@ -45,8 +45,13 @@
           <p id="lobby-error"></p>
         </section>
       </div>
-      <div id="lobby-room" hidden>
-        <p>Room code: <span id="room-code"></span> <button id="copy-link-btn" class="btn-quiet">Copy link</button></p>
+      <div id="lobby-room" class="panel" hidden>
+        <div id="room-code-row">
+          <span id="room-code-label">Room code</span>
+          <span id="room-code"></span>
+          <button id="copy-link-btn" class="btn-quiet">Copy link</button>
+        </div>
+        <h2>Fighters</h2>
         <ul id="player-list"></ul>
         <h2>Arena</h2>
         <div id="map-select"></div>
@@ -54,6 +59,7 @@
         <p id="spectate-note" hidden>You're spectating this match — you'll join the next one.</p>
         <button id="start-btn" class="btn-arcade" hidden>Start match</button>
         <p id="waiting-note">Waiting for the host to start…</p>
+        <p id="match-config"></p>
         <p id="bots-note">Empty slots are filled with bots — start any time, alone or with friends.</p>
       </div>
     </div>

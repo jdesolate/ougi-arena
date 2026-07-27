@@ -1,5 +1,13 @@
 import type { Room } from "colyseus.js";
-import { ARENAS, CHARACTERS, WEAPONS, ougiForCharacter, weaponFor } from "@ougi-arena/shared";
+import {
+  ARENAS,
+  CHARACTERS,
+  MATCH_DURATION_SECONDS,
+  WEAPONS,
+  arenaById,
+  ougiForCharacter,
+  weaponFor,
+} from "@ougi-arena/shared";
 import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
 import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
 import { resetWake, wakeServer } from "./network/wake.js";
@@ -10,6 +18,8 @@ import { drawMapThumb } from "./ui/map-thumb.js";
 import { drawWeaponIcon } from "./ui/weapon-icon.js";
 
 const NICKNAME_MAX_LENGTH = 16;
+/** Mirrors the server's `MAX_ACTIVE_PLAYERS`; the room only publishes it in matchmaking metadata, not in state. */
+const ACTIVE_SLOTS = 4;
 const RECONNECT_STORAGE_KEY = "ougi-arena:reconnect";
 /** Room list refresh cadence while the landing page is up; cheap GET, and stale lobbies are the whole problem. */
 const ROOM_LIST_POLL_MS = 4000;
@@ -24,6 +34,8 @@ interface StoredReconnect {
  */
 interface PlayerView {
   nickname: string;
+  characterId: string;
+  weaponId: string;
   isHost: boolean;
   spectating: boolean;
   isBot: boolean;
@@ -84,6 +96,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   const spectateNoteEl = el<HTMLParagraphElement>("spectate-note");
   const startBtn = el<HTMLButtonElement>("start-btn");
   const waitingNoteEl = el<HTMLParagraphElement>("waiting-note");
+  const matchConfigEl = el<HTMLParagraphElement>("match-config");
   const mapSelectEl = el<HTMLDivElement>("map-select");
   const mapNoteEl = el<HTMLParagraphElement>("map-note");
   const quickPlayBtn = el<HTMLButtonElement>("quick-play-btn");
@@ -150,6 +163,7 @@ export function initLobby(onStart: (room: Room) => void): void {
       drawMapThumb(canvas, map);
 
       const name = document.createElement("span");
+      name.className = "map-card-title";
       name.textContent = map.name;
 
       card.append(canvas, name);
@@ -163,27 +177,81 @@ export function initLobby(onStart: (room: Room) => void): void {
     }
   }
 
+  /** A badge shows the ninja you'll actually see in the arena, so the roster reads as a fight card. */
+  function playerBadge(player: PlayerView, isMe: boolean): HTMLLIElement {
+    const li = document.createElement("li");
+    li.className = isMe ? "player-badge is-me" : "player-badge";
+
+    const portrait = document.createElement("canvas");
+    portrait.className = "badge-portrait";
+    void drawPortrait(portrait, skinFor(player.characterId).bodyColor);
+
+    const detail = document.createElement("div");
+    detail.className = "badge-detail";
+
+    const name = document.createElement("span");
+    name.className = "badge-name";
+    name.textContent = player.nickname;
+
+    const weaponRow = document.createElement("span");
+    weaponRow.className = "badge-weapon";
+    const weaponIcon = document.createElement("canvas");
+    drawWeaponIcon(weaponIcon, player.weaponId);
+    const weaponName = document.createElement("span");
+    weaponName.textContent = weaponFor(player.weaponId).name;
+    weaponRow.append(weaponIcon, weaponName);
+
+    detail.append(name, weaponRow);
+
+    const tags = document.createElement("div");
+    tags.className = "badge-tags";
+    for (const [label, tagClass] of [
+      [player.isHost ? "Host" : null, "tag-host"],
+      [player.isBot ? "Bot" : null, "tag-bot"],
+      [player.spectating ? "Spectating" : null, "tag-spectating"],
+    ] as const) {
+      if (!label) continue;
+      const tag = document.createElement("span");
+      tag.className = `tag ${tagClass}`;
+      tag.textContent = label;
+      tags.appendChild(tag);
+    }
+
+    li.append(portrait, detail, tags);
+    return li;
+  }
+
+  /** What you're about to play, in one line: everything here is already decided, nothing is a control. */
+  function renderMatchConfig(mapId: string, players: PlayerView[]): void {
+    const fighters = players.filter((player) => !player.spectating).length;
+    const bots = Math.max(0, ACTIVE_SLOTS - fighters);
+    const minutes = Math.floor(MATCH_DURATION_SECONDS / 60);
+    const seconds = String(MATCH_DURATION_SECONDS % 60).padStart(2, "0");
+    const roster = bots > 0 ? `${fighters} vs ${bots} bot${bots === 1 ? "" : "s"}` : `${fighters} fighters`;
+    matchConfigEl.textContent = `${arenaById(mapId).name} · ${roster} · ${minutes}:${seconds} rounds`;
+  }
+
   function renderPlayers(room: Room): void {
     const state = room.state as { phase: string; mapId: string; players: Map<string, PlayerView> };
+    // Once playing, state syncs ~30x/sec behind a hidden lobby — rebuilding badges into it is pure waste.
+    if (matchStarted) return;
+
     playerListEl.innerHTML = "";
 
     let me: PlayerView | undefined;
+    const players: PlayerView[] = [];
     for (const [sessionId, player] of state.players.entries()) {
-      const li = document.createElement("li");
-      const tags = [
-        player.isHost ? "host" : null,
-        player.isBot ? "bot" : null,
-        player.spectating ? "spectating" : null,
-      ].filter(Boolean);
-      li.textContent = tags.length ? `${player.nickname} (${tags.join(", ")})` : player.nickname;
-      playerListEl.appendChild(li);
-      if (sessionId === room.sessionId) me = player;
+      const isMe = sessionId === room.sessionId;
+      playerListEl.appendChild(playerBadge(player, isMe));
+      players.push(player);
+      if (isMe) me = player;
     }
 
     spectateNoteEl.hidden = !me?.spectating;
     startBtn.hidden = !me?.isHost;
     waitingNoteEl.hidden = Boolean(me?.isHost);
     renderMap(state.mapId, me?.isHost ?? false);
+    renderMatchConfig(state.mapId, players);
 
     if (state.phase === "playing" && !matchStarted) {
       matchStarted = true;

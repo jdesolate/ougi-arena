@@ -1,20 +1,26 @@
 /*
- * Ougi Arena design system (S18). Every DOM color/spacing decision lives in the :root
- * token block; screens compose the component classes below instead of inventing values.
+ * Ougi Arena design system (S18, realigned to the logo in S19.5). Every DOM color/spacing decision
+ * lives in the :root token block; screens compose the component classes below instead of inventing values.
+ *
+ * The logo is the spec: heavy near-black outlines, an ember-vs-ice split, flat saturated fills, a heavy
+ * display face. There is no wood, lacquer or metallic plate in it, so there is none here either.
+ *
+ * Accent rules, so two colors never compete for "this matters":
+ *   --ember  primary. Anything the player acts on or picks: CTAs, selection, focus, section labels.
+ *   --gold   secondary, one job only: the ougi payoff. SP gauge fill and the match winner. Nothing else.
  *
  * Token <-> world-palette.ts mapping (keep in sync so DOM chrome and canvas can't drift):
- *   --ink-950          <- COLOR_PILLAR_EDGE  (0x131c33)  deepest line work
+ *   --outline          <- COLOR_PILLAR_EDGE  (0x0b0f1c)  the outline both surfaces draw with
  *   --ink-900          <- COLOR_BORDER       (0x16213e)  page background family
  *   --ink-700          <- COLOR_FLOOR        (0x0f3460)  arena floor blue, used for accents/insets
  *   --ink-500          <- COLOR_PILLAR_BODY  (0x2b3a68)  raised surfaces
- *   --ink-300          <- COLOR_PILLAR_TOP   (0x4a5f9e)  lit edges / strong lines
- *   --gold             <- COLOR_SPAWN        (0xffd166)  the one shared accent
- *   --wood / --wood-dark are DOM-only (lacquer frames have no canvas counterpart);
+ *   --ember-lit        <- COLOR_PILLAR_TOP   (0xa9673a)  the warm half: lit faces catching ember light
+ *   --ember            <- COLOR_SPAWN        (0xf97316)  the shared primary accent
  *   COLOR_OBSTACLE_* stay canvas-only. Change a shared value in both files or not at all.
  */
 
 :root {
-  /* Ink-wash slate scale (blue-black -> lit blue). */
+  /* Ink slate scale (blue-black -> lit blue): the cool half of the logo split. */
   --ink-950: #131c33;
   --ink-900: #16213e;
   --ink-850: #1a1a2e;
@@ -25,22 +31,21 @@
   --ink-500: #2b3a68;
   --ink-300: #4a5f9e;
 
-  /* Accents. */
-  --gold: #ffd166;
-  --gold-deep: #d4a63f;
-  --hp-red: #ff6b6b;
-  --chakra-blue: #4fc3f7;
-  --stamina-green: #8bc34a;
-
-  /* Sampled from the logo badge so the page reads as the same brand, not a backdrop it sits on. */
+  /* Ember scale: the warm half, and the primary accent everywhere. */
+  --ember-light: #fdba74;
   --ember: #f97316;
   --ember-deep: #c2410c;
-  --logo-blue: #2f6fd0;
+  --ember-lit: #a9673a;
 
-  /* Lacquered wood frame family (DOM-only, no canvas counterpart). */
-  --wood: #4a3226;
-  --wood-dark: #2e1f18;
-  --plate: #8a7a52;
+  /* Gold: reserved for the ougi payoff (SP full, winner). Never a general highlight. */
+  --gold: #ffd166;
+
+  /* Fixed-meaning gauge colors. */
+  --hp-red: #ff6b6b;
+  --chakra-blue: #4fc3f7;
+
+  /* The logo outlines every shape in near-black; so does every frame on this page. */
+  --outline: #0b0f1c;
 
   /* Text. */
   --text: #eee;
@@ -59,17 +64,17 @@
   --surface-raised: var(--ink-650);
   --surface-inset: var(--ink-950);
 
-  /* Arcade display face for the title and primary CTAs; body copy stays system-ui. */
-  --font-display: "Press Start 2P", ui-monospace, monospace;
+  /* Heavy condensed face matching the wordmark's weight; body copy stays system-ui. */
+  --font-display: "Anton", "Arial Narrow", Impact, sans-serif;
 }
 
 [hidden] {
   display: none !important;
 }
 
-/* Keyboard players get the same gold ring everywhere; inputs override with their own inset ring. */
+/* Keyboard players get the same ember ring everywhere; inputs override with their own inset ring. */
 :focus-visible {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--ember-light);
   outline-offset: 2px;
 }
 
@@ -106,23 +111,17 @@ body {
 
 /* ---- Components ------------------------------------------------------- */
 
-/* Lacquered wood panel with metallic corner plates; the frame for modals and grouped controls. */
+/* The logo's shape language: heavy near-black outline, flat fill, warm inner glow, hard drop underneath. */
 .panel {
   position: relative;
-  background:
-    linear-gradient(var(--plate), var(--plate)) top left,
-    linear-gradient(var(--plate), var(--plate)) top right,
-    linear-gradient(var(--plate), var(--plate)) bottom left,
-    linear-gradient(var(--plate), var(--plate)) bottom right;
-  background-size: 12px 12px;
-  background-repeat: no-repeat;
-  background-color: var(--surface);
-  border: 3px solid var(--wood);
+  background: var(--surface);
+  border: 3px solid var(--outline);
   border-radius: var(--radius);
   box-shadow:
-    inset 0 0 0 1px var(--wood-dark),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 4px 16px rgba(0, 0, 0, 0.45);
+    inset 0 0 0 1px rgba(249, 115, 22, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 4px 0 var(--outline),
+    0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* Recessed input: carved into the surface rather than floating on it. */
@@ -134,33 +133,35 @@ body {
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 .input-recessed:focus {
-  outline: 2px solid var(--gold);
+  outline: 2px solid var(--ember);
   outline-offset: -1px;
 }
 
-/* Chunky arcade action button: gold face, pressed-in travel on click. */
+/* Chunky arcade action button: ember face, outlined like the logo, pressed-in travel on click. */
 .btn-arcade {
   padding: 10px;
-  background: linear-gradient(var(--gold), var(--gold-deep));
-  color: var(--ink-850);
+  background: linear-gradient(var(--ember), var(--ember-deep));
+  color: #fff;
   font-weight: bold;
-  border: none;
-  /* Ember underside rather than a darker gold: carries the logo's heat into the primary action. */
-  border-bottom: 3px solid var(--ember-deep);
+  /* Same near-black keyline the logo puts around its wordmark, so the button reads as brand, not chrome. */
+  border: 2px solid var(--outline);
+  border-bottom: 4px solid var(--outline);
   border-radius: var(--radius-sm);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
   cursor: pointer;
 }
 .btn-arcade:hover:not([disabled]) {
   filter: brightness(1.08);
 }
 .btn-arcade:active:not([disabled]) {
-  border-bottom-width: 1px;
+  border-bottom-width: 2px;
   transform: translateY(2px);
 }
 .btn-arcade[disabled] {
   background: var(--ink-750);
   color: var(--text-faint);
-  border-bottom-color: var(--ink-950);
+  border-color: var(--ink-950);
+  text-shadow: none;
   cursor: default;
 }
 
@@ -181,10 +182,10 @@ body {
   background: var(--ink-500);
 }
 
-/* Selectable card (characters, weapons, maps): gold glow when picked. */
+/* Selectable card (characters, weapons, maps): ember glow when picked. */
 .card {
   background: var(--surface);
-  border: 2px solid transparent;
+  border: 2px solid var(--outline);
   border-radius: var(--radius);
   color: var(--text);
   font: inherit;
@@ -197,9 +198,11 @@ body {
   background: var(--surface-raised);
 }
 .card[aria-pressed="true"] {
-  border-color: var(--gold);
+  border-color: var(--ember);
   background: var(--surface-raised);
-  box-shadow: 0 0 10px rgba(255, 209, 102, 0.45);
+  box-shadow:
+    0 0 0 1px var(--ember),
+    0 0 14px rgba(249, 115, 22, 0.5);
   transform: translateY(-3px);
 }
 /* The pick pops: the animation re-runs each time the selector newly matches. */
@@ -249,12 +252,20 @@ body {
   margin: 0;
   text-align: center;
   font-family: var(--font-display);
-  font-size: 1.9rem;
+  /* Anton is far narrower than the pixel face it replaced, so the display sizes all step up. */
+  font-size: 3.2rem;
   font-weight: normal;
-  color: var(--gold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ember);
   text-shadow:
-    0 0 12px rgba(255, 209, 102, 0.4),
-    0 3px 0 var(--wood-dark);
+    0 0 18px rgba(249, 115, 22, 0.45),
+    0 4px 0 var(--outline);
+}
+/* The wordmark is italic in the badge; Anton has no italic, so the fallback text leans to match. */
+#brand-text {
+  display: inline-block;
+  transform: skewX(-8deg);
 }
 #brand-logo {
   display: block;
@@ -308,7 +319,7 @@ body {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
-  color: var(--gold);
+  color: var(--ember-light);
   font-size: 0.9rem;
 }
 #lobby input[type="text"],
@@ -345,9 +356,11 @@ body {
 }
 /* The one action that matters most on the page: pixel face + a slow breathing glow. */
 #quick-play-btn {
-  padding: 16px 10px;
+  padding: 14px 10px;
   font-family: var(--font-display);
-  font-size: 0.85rem;
+  font-size: 1.5rem;
+  font-weight: normal;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   animation: cta-breathe 2.4s ease-in-out infinite;
 }
@@ -360,25 +373,25 @@ body {
     box-shadow: 0 0 20px rgba(249, 115, 22, 0.6);
   }
 }
-/* Section labels: small gold caps with a rule running to the edge, arcade-menu style. */
+/* Section labels: ember caps with a rule running to the edge, arcade-menu style. */
 #lobby h2 {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.72rem;
+  font-size: 1.05rem;
   font-family: var(--font-display);
   font-weight: normal;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   margin: 8px 0 0;
-  color: var(--gold);
+  color: var(--ember);
 }
 #lobby h2::after {
   content: "";
   flex: 1;
   height: 1px;
-  background: linear-gradient(to right, var(--gold-deep), transparent);
-  opacity: 0.5;
+  background: linear-gradient(to right, var(--ember-deep), transparent);
+  opacity: 0.6;
 }
 #room-list-empty {
   margin: 0;
@@ -457,11 +470,12 @@ body {
 #hud-tp-fill {
   background: var(--chakra-blue);
 }
+/* SP is the ougi charge, which is gold's one job on the whole page. */
 #hud-sp-fill {
   background: var(--gold);
 }
 #hud-weapon-fill {
-  background: var(--stamina-green);
+  background: var(--ember);
 }
 #hud-ougi-btn {
   padding: 4px 10px;
@@ -525,7 +539,7 @@ body {
 #rotate-note {
   display: none;
   flex-basis: 100%;
-  color: var(--gold);
+  color: var(--ember-light);
   font-size: 0.75rem;
 }
 @media (max-width: 520px) and (orientation: portrait) {
@@ -552,7 +566,7 @@ body {
     padding: 16px;
   }
   #lobby h1 {
-    font-size: 1.5rem;
+    font-size: 2.2rem;
     margin: 0;
   }
   /* A full-size badge would push Quick Play off the first screen on a phone. */

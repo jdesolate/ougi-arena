@@ -6,7 +6,9 @@ art is listed separately below.
 
 Original game names, characters and Ougi designs are ours; nothing here is from Nindou.
 
-Brand art may be AI-generated (see `CLAUDE.md`); in-game art stays code-drawn or CC0. Note that purely
+AI-generated art is allowed for brand art and for single fixed-size in-game images (portraits, icons, banners,
+backdrops); sprite sheets and arena tiles stay code-drawn or CC0, because those must hold a grid and a palette
+across frames (see `CLAUDE.md`). Note that purely
 AI-generated images can't be registered for copyright in some jurisdictions, including the US — it doesn't
 stop you shipping them, but it does mean the logo may not be an asset you can defend as exclusively yours.
 

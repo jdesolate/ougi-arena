@@ -118,6 +118,9 @@
       #hud-sp-fill {
         background: #ffd166;
       }
+      #hud-weapon-fill {
+        background: #8bc34a;
+      }
       #hud-ougi-btn {
         padding: 4px 10px;
         font-size: 0.85rem;
@@ -138,10 +141,17 @@
         color: #aaa;
         min-height: 2.4em;
       }
-      #character-select {
+      #character-select,
+      #weapon-select {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 8px;
+      }
+      #weapon-description {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #aaa;
+        min-height: 2.4em;
       }
       .character-card {
         display: flex;
@@ -258,6 +268,9 @@
         <h2>Choose your ninja</h2>
         <div id="character-select"></div>
         <p id="character-ougi"></p>
+        <h2>Choose your weapon</h2>
+        <div id="weapon-select"></div>
+        <p id="weapon-description"></p>
         <button id="quick-play-btn">Quick Play</button>
         <label><input id="private-toggle" type="checkbox" /> Private room</label>
         <button id="create-btn">Create room</button>
@@ -286,6 +299,7 @@
       <span id="hud-timer">2:00</span>
       <div class="meter-bar"><div id="hud-tp-fill" class="meter-fill" style="width: 100%"></div></div>
       <div class="meter-bar"><div id="hud-sp-fill" class="meter-fill" style="width: 0%"></div></div>
+      <div class="meter-bar"><div id="hud-weapon-fill" class="meter-fill" style="width: 100%"></div></div>
       <button id="hud-ougi-btn" disabled>Ougi</button>
       <ul id="hud-scoreboard"></ul>
     </div>

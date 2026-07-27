@@ -1,8 +1,12 @@
 import {
+  attackCells,
   canFireOugi,
+  closestPointOnAabb,
   laneDistance,
   lengthOf,
   maxDashDistanceOf,
+  snapToCardinal,
+  weaponFor,
   type NinjaState,
   type SimCommand,
   type SimState,
@@ -44,6 +48,15 @@ export function decideBotCommand(state: SimState, ninja: NinjaState): BotDecisio
   const dy = target.y - ninja.y;
   if (lengthOf(dx, dy) < TARGET_EPSILON) return { command: null, charging: true };
 
+  // A target already in weapon range is a free hit — swing instead of spending a dash to close ground that's
+  // already closed. Off cooldown only; the sim would drop it anyway, but there's no reason to spam the queue.
+  if (ninja.attackCooldown <= 0) {
+    const attackDir = snapToCardinal(dx, dy);
+    if ((attackDir.x !== 0 || attackDir.y !== 0) && targetInWeaponRange(state, ninja, target, attackDir)) {
+      return { command: { type: "attack", ninjaId: ninja.id, dirX: attackDir.x, dirY: attackDir.y }, charging: false };
+    }
+  }
+
   const maxDash = maxDashDistanceOf(ninja);
   const chargeFraction = maxDash > 0 ? ninja.tp / maxDash : 0;
   if (chargeFraction < CHARGE_THRESHOLD) return { command: null, charging: true };
@@ -53,6 +66,20 @@ export function decideBotCommand(state: SimState, ninja: NinjaState): BotDecisio
     command: { type: "launch", ninjaId: ninja.id, dirX: dir.x, dirY: dir.y, power: Math.min(1, chargeFraction) },
     charging: false,
   };
+}
+
+/** Whether `ninja`'s weapon, swung along `dir` right now, would actually reach `target`'s body. */
+function targetInWeaponRange(
+  state: SimState,
+  ninja: NinjaState,
+  target: NinjaState,
+  dir: { x: number; y: number },
+): boolean {
+  const weapon = weaponFor(ninja.weaponId);
+  return attackCells(state, ninja, dir, weapon).some((box) => {
+    const closest = closestPointOnAabb(box, target.x, target.y);
+    return lengthOf(target.x - closest.x, target.y - closest.y) < target.radius;
+  });
 }
 
 function nearestTarget(state: SimState, ninja: NinjaState): NinjaState | null {

@@ -1,5 +1,5 @@
 import type { Room } from "colyseus.js";
-import { ARENAS, CHARACTERS, ougiForCharacter } from "@ougi-arena/shared";
+import { ARENAS, CHARACTERS, WEAPONS, ougiForCharacter, weaponFor } from "@ougi-arena/shared";
 import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
 import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
 import { playUiSfx } from "./audio/sfx.js";
@@ -69,6 +69,8 @@ export function initLobby(onStart: (room: Room) => void): void {
   const nicknameInput = el<HTMLInputElement>("nickname-input");
   const characterSelectEl = el<HTMLDivElement>("character-select");
   const characterOugiEl = el<HTMLParagraphElement>("character-ougi");
+  const weaponSelectEl = el<HTMLDivElement>("weapon-select");
+  const weaponDescriptionEl = el<HTMLParagraphElement>("weapon-description");
   const privateToggle = el<HTMLInputElement>("private-toggle");
   const createBtn = el<HTMLButtonElement>("create-btn");
   const joinCodeInput = el<HTMLInputElement>("join-code-input");
@@ -157,11 +159,12 @@ export function initLobby(onStart: (room: Room) => void): void {
     }
   }
 
-  /** Nickname and character, shared by every join path (create, join-by-code, Quick Play, room list). */
-  function joinOptions(): { nickname: string; characterId: string } {
+  /** Nickname, character and weapon, shared by every join path (create, join-by-code, Quick Play, room list). */
+  function joinOptions(): { nickname: string; characterId: string; weaponId: string } {
     return {
       nickname: nicknameInput.value.slice(0, NICKNAME_MAX_LENGTH),
       characterId: selectedCharacterId,
+      weaponId: selectedWeaponId,
     };
   }
 
@@ -214,6 +217,36 @@ export function initLobby(onStart: (room: Room) => void): void {
     characterCards.set(character.id, card);
   }
   selectCharacter(selectedCharacterId, true);
+
+  /** Weapon select: a card per weapon, independent of character — 3x3 combinations from 3 characters. */
+  let selectedWeaponId = WEAPONS[0]?.id ?? "";
+  const weaponCards = new Map<string, HTMLButtonElement>();
+
+  function selectWeapon(weaponId: string, silent = false): void {
+    selectedWeaponId = weaponId;
+    for (const [id, card] of weaponCards) {
+      card.setAttribute("aria-pressed", String(id === weaponId));
+    }
+    const weapon = weaponFor(weaponId);
+    weaponDescriptionEl.textContent = `${weapon.name} — ${weapon.description}`;
+    if (!silent) playUiSfx("select");
+  }
+
+  for (const weapon of WEAPONS) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "character-card";
+    card.setAttribute("aria-pressed", "false");
+
+    const name = document.createElement("span");
+    name.textContent = weapon.name;
+
+    card.append(name);
+    card.addEventListener("click", () => selectWeapon(weapon.id));
+    weaponSelectEl.appendChild(card);
+    weaponCards.set(weapon.id, card);
+  }
+  selectWeapon(selectedWeaponId, true);
 
   /** Renders the public room list, and keeps it fresh so a lobby that just filled up isn't still advertised. */
   async function refreshRoomList(): Promise<void> {

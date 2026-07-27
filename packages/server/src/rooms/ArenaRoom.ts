@@ -5,9 +5,11 @@ import {
   CHARACTERS,
   DEFAULT_ARENA_ID,
   DEFAULT_CHARACTER_ID,
+  DEFAULT_WEAPON_ID,
   MATCH_DURATION_TICKS,
   SIM_DT,
   SIM_TICK_RATE_HZ,
+  WEAPONS,
   arenaById,
   createSimState,
   step,
@@ -49,6 +51,7 @@ export interface RoomListing extends RoomMetadata {
 interface JoinOptions {
   nickname?: string;
   characterId?: string;
+  weaponId?: string;
 }
 
 interface CreateOptions {
@@ -71,9 +74,15 @@ interface MapMessage {
   mapId?: string;
 }
 
+interface AttackMessage {
+  dirX?: number;
+  dirY?: number;
+}
+
 export class PlayerState extends Schema {
   @type("string") nickname = "";
   @type("string") characterId = DEFAULT_CHARACTER_ID;
+  @type("string") weaponId = DEFAULT_WEAPON_ID;
   @type("boolean") isHost = false;
   /** Mid-match joiners (or joiners past the active-player cap) watch until the next match. */
   @type("boolean") spectating = false;
@@ -100,6 +109,12 @@ export class NinjaSchema extends Schema {
   /** Synced so the client's aim preview reflects an Ougi reach buff instead of re-deriving it. */
   @type("number") dashRangeMultiplier = 1;
   @type("number") invulnerableTicks = 0;
+  /** Static for the whole match — set once at `startMatch`, not touched by `syncState`. */
+  @type("string") weaponId = DEFAULT_WEAPON_ID;
+  /** Drives the HUD cooldown bar and the swing effect's direction; changes on every dash or attack. */
+  @type("number") facingX = 0;
+  @type("number") facingY = 1;
+  @type("number") attackCooldown = 0;
 }
 
 /** Only the mutable fields sync — obstacle geometry is static map data the client already has. */
@@ -151,6 +166,7 @@ export class ArenaRoom extends Room<LobbyState> {
     this.onMessage("launch", (client, message: LaunchMessage) => this.handleLaunch(client, message));
     this.onMessage("charge", (client, message: ChargeMessage) => this.handleCharge(client, message));
     this.onMessage("ougi", (client) => this.handleOugi(client));
+    this.onMessage("attack", (client, message: AttackMessage) => this.handleAttack(client, message));
     this.onMessage("rematch", (client) => this.handleRematch(client));
     // Round-trip probe for the client's latency readout; echoes the client's own timestamp back untouched.
     this.onMessage("ping", (client, sentAt: number) => client.send("pong", sentAt));
@@ -161,6 +177,7 @@ export class ArenaRoom extends Room<LobbyState> {
     const player = new PlayerState();
     player.nickname = sanitizeNickname(options.nickname);
     player.characterId = sanitizeCharacterId(options.characterId);
+    player.weaponId = sanitizeWeaponId(options.weaponId);
     player.spectating = this.state.phase === "playing" || this.activePlayerCount() >= MAX_ACTIVE_PLAYERS;
     player.isHost = !this.hasHost();
 
@@ -249,6 +266,14 @@ export class ArenaRoom extends Room<LobbyState> {
     this.commandQueue.push({ type: "ougi", ninjaId: client.sessionId });
   }
 
+  /** A zero direction (a tap with no drag) swings wherever the ninja already faces — the sim resolves that. */
+  private handleAttack(client: Client, message: AttackMessage): void {
+    if (this.state.phase !== "playing") return;
+    const dirX = Number(message?.dirX) || 0;
+    const dirY = Number(message?.dirY) || 0;
+    this.commandQueue.push({ type: "attack", ninjaId: client.sessionId, dirX, dirY });
+  }
+
   /** Continuous hold state, not a queued command — TP accrues tick over tick for as long as this stays true. */
   private handleCharge(client: Client, message: ChargeMessage): void {
     if (!this.sim || this.state.phase !== "playing") return;
@@ -276,8 +301,9 @@ export class ArenaRoom extends Room<LobbyState> {
     const activeIds = [...activeHumanIds, ...botIds];
 
     const characterIds = activeIds.map((id) => this.state.players.get(id)?.characterId ?? DEFAULT_CHARACTER_ID);
+    const weaponIds = activeIds.map((id) => this.state.players.get(id)?.weaponId ?? DEFAULT_WEAPON_ID);
 
-    this.sim = createSimState(activeIds, arenaById(this.state.mapId), characterIds);
+    this.sim = createSimState(activeIds, arenaById(this.state.mapId), characterIds, weaponIds);
     this.commandQueue = [];
     this.pendingAcks = [];
     this.accumulatorMs = 0;
@@ -300,6 +326,10 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.ougiTicks = ninja.ougiTicks;
       schema.dashRangeMultiplier = ninja.dashRangeMultiplier;
       schema.invulnerableTicks = ninja.invulnerableTicks;
+      schema.weaponId = ninja.weaponId;
+      schema.facingX = ninja.facingX;
+      schema.facingY = ninja.facingY;
+      schema.attackCooldown = ninja.attackCooldown;
       this.state.ninjas.push(schema);
     }
 
@@ -414,6 +444,9 @@ export class ArenaRoom extends Room<LobbyState> {
       schema.ougiTicks = ninja.ougiTicks;
       schema.dashRangeMultiplier = ninja.dashRangeMultiplier;
       schema.invulnerableTicks = ninja.invulnerableTicks;
+      schema.facingX = ninja.facingX;
+      schema.facingY = ninja.facingY;
+      schema.attackCooldown = ninja.attackCooldown;
     }
 
     for (let i = 0; i < this.sim.obstacles.length; i++) {
@@ -447,6 +480,7 @@ export class ArenaRoom extends Room<LobbyState> {
       const player = new PlayerState();
       player.nickname = `Bot ${this.botCounter}`;
       player.characterId = CHARACTERS[(this.botCounter - 1) % CHARACTERS.length]!.id;
+      player.weaponId = WEAPONS[(this.botCounter - 1) % WEAPONS.length]!.id;
       player.isBot = true;
       player.spectating = false;
       this.state.players.set(id, player);
@@ -508,4 +542,8 @@ function sanitizeNickname(raw: string | undefined): string {
 
 function sanitizeCharacterId(raw: string | undefined): string {
   return CHARACTERS.some((c) => c.id === raw) ? raw! : DEFAULT_CHARACTER_ID;
+}
+
+function sanitizeWeaponId(raw: string | undefined): string {
+  return WEAPONS.some((w) => w.id === raw) ? raw! : DEFAULT_WEAPON_ID;
 }

@@ -17,6 +17,7 @@ import {
   snapToCardinal,
   snapToCellCentre,
   step,
+  weaponFor,
   type ArenaMap,
   type LaunchCommand,
   type SimEvent,
@@ -52,6 +53,13 @@ const MAX_STEPS_PER_FRAME = 5;
 
 /** Generous grab radius so the drag doesn't need pixel-perfect precision on the ninja. */
 const GRAB_RADIUS = NINJA_RADIUS * 2.5;
+/** A release within this many world units of the press point reads as a tap (swing) rather than a drag (dash). */
+const TAP_DRAG_THRESHOLD = 10;
+/**
+ * No dedicated swing SFX is shipped yet (S15 adds no new audio assets) — "wall" (a light impact) is the
+ * closest fit already in the pack, leveled per weapon so a longsword reads heavier than a kunai poke.
+ */
+const WEAPON_SFX_VOLUME: Record<string, number> = { kunai: 0.35, fan: 0.45, longsword: 0.55 };
 
 /** Render remote ninjas this far in the past so there's always a pair of snapshots to interpolate between. */
 const INTERP_DELAY_MS = 100;
@@ -91,6 +99,10 @@ interface NinjaView {
   ougiTicks: number;
   dashRangeMultiplier: number;
   invulnerableTicks: number;
+  weaponId: string;
+  facingX: number;
+  facingY: number;
+  attackCooldown: number;
 }
 interface ObstacleView {
   hp: number;
@@ -171,6 +183,7 @@ export class GameScene extends Phaser.Scene {
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
   private readonly hudTpFillEl = el<HTMLDivElement>("hud-tp-fill");
   private readonly hudSpFillEl = el<HTMLDivElement>("hud-sp-fill");
+  private readonly hudWeaponFillEl = el<HTMLDivElement>("hud-weapon-fill");
   private readonly hudOugiBtn = el<HTMLButtonElement>("hud-ougi-btn");
   private readonly hudScoreboardEl = el<HTMLUListElement>("hud-scoreboard");
   private readonly matchEndEl = el<HTMLDivElement>("match-end");
@@ -337,6 +350,13 @@ export class GameScene extends Phaser.Scene {
           if (pos) this.dashEffect(event.ninjaId, pos.x, pos.y, 0.3);
           break;
         }
+        case "ninjaAttacked": {
+          // The local swing already played at 0ms on the tap (optimistic, like the dash); this is everyone else's.
+          if (event.ninjaId === this.localId) break;
+          const pos = this.renderPos(event.ninjaId);
+          if (pos) this.weaponEffect(event.ninjaId, event.weaponId, pos.x, pos.y, event.dirX, event.dirY);
+          break;
+        }
         case "wallHit": {
           const pos = this.renderPos(event.ninjaId);
           if (!pos) break;
@@ -421,6 +441,46 @@ export class GameScene extends Phaser.Scene {
       duration: 220,
       ease: "Back.easeOut",
     });
+  }
+
+  /**
+   * Swing juice: a burst at each cell the weapon's pattern would hit (cover isn't checked here — it's cosmetic,
+   * the server resolves the real damage) plus a squash-tween on the sprite and a per-weapon leveled SFX.
+   */
+  private weaponEffect(ninjaId: string, weaponId: string, x: number, y: number, dirX: number, dirY: number): void {
+    const weapon = weaponFor(weaponId);
+    const skin = skinFor(this.characterIdOf(ninjaId));
+    const rightX = -dirY;
+    const rightY = dirX;
+    for (const cell of weapon.cells) {
+      const cx = x + (dirX * cell.forward + rightX * cell.lateral) * CELL;
+      const cy = y + (dirY * cell.forward + rightY * cell.lateral) * CELL;
+      this.effects.burst(cx, cy, skin.bodyColor, 5);
+    }
+    playSfx(this, "wall", WEAPON_SFX_VOLUME[weaponId] ?? 0.4);
+
+    const sprite = this.ninjaSprites.get(ninjaId);
+    if (!sprite) return;
+    this.tweens.killTweensOf(sprite);
+    sprite.setScale(NINJA_SPRITE_SCALE * 1.15, NINJA_SPRITE_SCALE * 0.9);
+    this.tweens.add({
+      targets: sprite,
+      scaleX: NINJA_SPRITE_SCALE,
+      scaleY: NINJA_SPRITE_SCALE,
+      duration: 140,
+      ease: "Quad.easeOut",
+    });
+  }
+
+  /** Tap-to-swing: a release with no real drag attacks in the ninja's current facing instead of dashing. */
+  private tryAttack(): void {
+    const ninja = this.localNinja();
+    const mine = this.serverNinja();
+    if (!ninja || !ninja.active || !mine || mine.attackCooldown > 0) return;
+
+    // A zero direction tells the server to swing wherever the ninja already faces — no aim needed for a tap.
+    this.room.send("attack", { dirX: 0, dirY: 0 });
+    this.weaponEffect(this.localId, mine.weaponId, ninja.x, ninja.y, mine.facingX, mine.facingY);
   }
 
   /** Ougis run server-side only — nothing is predicted locally, so the effect lands a round trip later. */
@@ -512,6 +572,10 @@ export class GameScene extends Phaser.Scene {
     const mine = this.serverNinja();
     this.hudTpFillEl.style.width = `${clamp(((mine?.tp ?? 0) / MAX_TP) * 100, 0, 100)}%`;
     this.hudSpFillEl.style.width = `${clamp(((mine?.sp ?? 0) / MAX_SP) * 100, 0, 100)}%`;
+
+    const weaponCooldown = weaponFor(mine?.weaponId ?? "").cooldownTicks;
+    const weaponReadyFrac = weaponCooldown > 0 ? 1 - (mine?.attackCooldown ?? 0) / weaponCooldown : 1;
+    this.hudWeaponFillEl.style.width = `${clamp(weaponReadyFrac * 100, 0, 100)}%`;
 
     const characterId = state.players.get(this.localId)?.characterId ?? "";
     const ougi = ougiForCharacter(characterId);
@@ -658,7 +722,12 @@ export class GameScene extends Phaser.Scene {
     const dragX = this.pointerX - ninja.x;
     const dragY = this.pointerY - ninja.y;
     const dragDist = lengthOf(dragX, dragY);
-    if (dragDist === 0) return;
+
+    // A release with barely any drag reads as a tap: swing the weapon instead of attempting a dash.
+    if (dragDist < TAP_DRAG_THRESHOLD) {
+      this.tryAttack();
+      return;
+    }
 
     // Drag-toward: release launches toward the pointer, 1:1 with drag distance (capped at full range), snapped to an axis.
     const power = clamp(dragDist / maxDashDistanceOf(ninja), 0, 1);

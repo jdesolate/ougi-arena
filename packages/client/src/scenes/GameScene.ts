@@ -20,7 +20,6 @@ import {
   snapToCellCentre,
   step,
   weaponFor,
-  WEAPON_KNOCKBACK_SPEED,
   type Aabb,
   type ArenaMap,
   type LaunchCommand,
@@ -45,7 +44,6 @@ import {
 import {
   COLOR_BORDER,
   COLOR_BORDER_FACE,
-  COLOR_DUST,
   COLOR_FLOOR,
   COLOR_FLOOR_LINE,
   COLOR_FLOOR_TILE,
@@ -554,21 +552,6 @@ export class GameScene extends Phaser.Scene {
           }
           break;
         }
-        case "ninjaKnockback": {
-          // The push starts at the victim's feet and drags across the floor, so the dust does too.
-          const pos = this.renderPos(event.targetId);
-          if (pos) {
-            this.effects.dust(pos.x, pos.y + NINJA_RADIUS * 0.6, COLOR_DUST, 7);
-            this.time.delayedCall(90, () => {
-              const later = this.renderPos(event.targetId);
-              if (later) this.effects.dust(later.x, later.y + NINJA_RADIUS * 0.6, COLOR_DUST, 5);
-            });
-          }
-          if (event.targetId === this.localId) {
-            this.applyLocalKnockback(event.dirX, event.dirY, event.distance);
-          }
-          break;
-        }
         case "ninjaHit": {
           const pos = this.renderPos(event.aId);
           if (pos) this.effects.burst(pos.x, pos.y, 0xffffff, 5);
@@ -676,22 +659,6 @@ export class GameScene extends Phaser.Scene {
     const from = this.renderPos(sourceId);
     if (from) return Math.atan2(targetY - from.y, targetX - from.x) + Math.PI / 2;
     return Math.PI / 4;
-  }
-
-  /**
-   * The push the server just applied to *us*, replayed in the prediction sim so it renders as a slide. Without
-   * it the local ninja stands still and then jumps a cell when reconciliation snaps at rest (S23 open issue 1);
-   * with it both sims run the same deterministic push, so cover hard-stops it identically and the snap is a
-   * rounding correction rather than a teleport. Remote ninjas need none of this — interpolation slides them.
-   */
-  private applyLocalKnockback(dirX: number, dirY: number, distance: number): void {
-    const ninja = this.localNinja();
-    if (!ninja || !ninja.active) return;
-    ninja.vx = dirX * WEAPON_KNOCKBACK_SPEED;
-    ninja.vy = dirY * WEAPON_KNOCKBACK_SPEED;
-    ninja.dashBudget = distance;
-    // Being shoved must never shatter whoever you land on — the same rule the sim's own push follows.
-    ninja.dashLethal = false;
   }
 
   /** Aimed swing: a tap away from your own ninja swings toward that point, snapped to the nearest cardinal axis. */

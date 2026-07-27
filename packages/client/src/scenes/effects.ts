@@ -22,8 +22,11 @@ export const DEPTH_SWING = 900;
 
 /**
  * How each weapon's swing is drawn, keyed by the shared weapon id. `sweep` is the arc the visual travels while
- * it plays — zero for the kunai, because a thrust is a line, not a slash — and the scales carry the motion the
- * rotation can't: the kunai's streak extends, the two arcs bloom outward.
+ * it plays — zero for the two thrusts, because a line down one lane is not a slash — and the scales carry the
+ * motion the rotation can't: the kunai and longsword streaks extend, the fan's arc blooms outward.
+ *
+ * The shapes have to match the cell patterns in `weapon.ts` or the visual lies about reach: only the fan covers
+ * the cells beside it, so only the fan sweeps.
  */
 interface SwingStyle {
   key: string;
@@ -53,10 +56,10 @@ const SWING_STYLES = {
   },
   longsword: {
     key: "swing-longsword",
-    originX: 0.5,
-    sweepRad: 1.3,
-    from: { scaleX: 0.9, scaleY: 0.9 },
-    to: { scaleX: 1.06, scaleY: 1.06 },
+    originX: 0,
+    sweepRad: 0,
+    from: { scaleX: 0.4, scaleY: 1.1 },
+    to: { scaleX: 1.05, scaleY: 0.8 },
     durationMs: 260,
   },
 } satisfies Record<string, SwingStyle>;
@@ -82,8 +85,6 @@ export class MatchEffects {
   private smoke!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Debris from a shattered destructible: hard chips that fall, unlike the soft smoke they land in. */
   private shards!: Phaser.GameObjects.Particles.ParticleEmitter;
-  /** Kicked off the floor by a body being shoved across it. */
-  private dustCloud!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Freezes the sim briefly so a hit lands with weight; wall-clock time keeps accruing so it catches straight back up. */
   private hitPauseUntil = 0;
 
@@ -138,20 +139,13 @@ export class MatchEffects {
       emitting: false,
     });
     this.shards.setDepth(DEPTH_PARTICLES);
-
-    this.dustCloud = this.scene.add.particles(0, 0, SPARK_TEXTURE_KEY, {
-      speed: { min: 15, max: 70 },
-      lifespan: { min: 260, max: 520 },
-      scale: { start: 0.7, end: 1.8 },
-      alpha: { start: 0.45, end: 0 },
-      emitting: false,
-    });
-    this.dustCloud.setDepth(DEPTH_PARTICLES);
   }
 
   /**
    * The three swing shapes, generated once. Each is drawn in its own colour rather than tinted at play time so
    * the longsword can carry two (an ember body under a silver edge) — the read the brief asked for.
+   *
+   * The two thrusts are sized to the cells they actually hit: the kunai reaches one cell, the longsword two.
    */
   private createSwingTextures(): void {
     this.makeTexture(SWING_STYLES.kunai.key, 96, 16, (g) => {
@@ -173,15 +167,14 @@ export class MatchEffects {
       g.strokePath();
     });
 
-    this.makeTexture(SWING_STYLES.longsword.key, 340, 340, (g) => {
-      g.lineStyle(34, COLOR_SWING_BLADE, 0.45);
-      g.beginPath();
-      g.arc(170, 170, 142, -0.62, 0.62);
-      g.strokePath();
-      g.lineStyle(11, COLOR_SWING_STEEL, 0.95);
-      g.beginPath();
-      g.arc(170, 170, 142, -0.58, 0.58);
-      g.strokePath();
+    // Twice the kunai's reach and heavier with it: the same thrust, carried a cell further.
+    this.makeTexture(SWING_STYLES.longsword.key, 190, 28, (g) => {
+      g.fillStyle(COLOR_SWING_BLADE, 0.5);
+      g.fillTriangle(0, 2, 0, 26, 190, 14);
+      g.fillStyle(COLOR_SWING_STEEL, 0.9);
+      g.fillTriangle(0, 7, 0, 21, 190, 14);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(0, 12, 176, 4);
     });
   }
 
@@ -249,12 +242,6 @@ export class MatchEffects {
   shatter(x: number, y: number, color: number, count = 14): void {
     this.shards.setParticleTint(color);
     this.shards.emitParticleAt(x, y, count);
-  }
-
-  /** Floor kicked up under a body being shoved — the ground truth that a knockback is movement, not a teleport. */
-  dust(x: number, y: number, color: number, count = 6): void {
-    this.dustCloud.setParticleTint(color);
-    this.dustCloud.emitParticleAt(x, y, count);
   }
 
   /** Sharp directional-ish spray for impacts: dash landings, wall hits, obstacle chips. */

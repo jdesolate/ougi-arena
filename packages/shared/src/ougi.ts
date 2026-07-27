@@ -2,8 +2,6 @@ import {
   CROSS_SLASH_LANE_HALF_WIDTH,
   MAX_SP,
   MAX_TP,
-  SHOCKWAVE_KNOCKBACK_DISTANCE,
-  SHOCKWAVE_KNOCKBACK_SPEED,
   SHOCKWAVE_MAX_DAMAGE,
   SHOCKWAVE_RADIUS,
   SURGE_DASH_MULTIPLIER,
@@ -37,11 +35,11 @@ export interface CharacterDefinition {
   ougiId: string;
 }
 
-/** Radial burst: chips everyone nearby, flings them outward, and clears the destructible cover around you. */
+/** Radial burst: chips everyone nearby and clears the destructible cover around you. Nobody is moved by it. */
 const SHOCKWAVE: OugiDefinition = {
   id: "shockwave",
   name: "Shockwave",
-  description: "Burst outward: damages and flings everyone nearby, and shatters cover in the blast.",
+  description: "Burst outward: damages everyone nearby and shatters cover in the blast.",
   durationTicks: 0,
   onFire(state, ninja, events) {
     for (const other of state.ninjas) {
@@ -52,19 +50,8 @@ const SHOCKWAVE: OugiDefinition = {
       const dist = lengthOf(dx, dy);
       if (dist >= SHOCKWAVE_RADIUS) continue;
 
-      const falloff = 1 - dist / SHOCKWAVE_RADIUS;
-      // Perfectly stacked bodies have no direction; pick a fixed axis so the result stays reproducible.
-      const nx = dist > 0 ? dx / dist : 1;
-      const ny = dist > 0 ? dy / dist : 0;
-
-      damageNinja(other, SHOCKWAVE_MAX_DAMAGE * falloff, ninja, events);
-      if (!other.active) continue;
-
-      // Knockback rides the same budget a dash uses, but is never lethal — being flung shouldn't shatter people.
-      other.vx = nx * SHOCKWAVE_KNOCKBACK_SPEED;
-      other.vy = ny * SHOCKWAVE_KNOCKBACK_SPEED;
-      other.dashBudget = SHOCKWAVE_KNOCKBACK_DISTANCE * falloff;
-      other.dashLethal = false;
+      // Damage falls off linearly to nothing at the rim; where you stand in the blast is the whole decision.
+      damageNinja(other, SHOCKWAVE_MAX_DAMAGE * (1 - dist / SHOCKWAVE_RADIUS), ninja, events);
     }
 
     for (const obstacle of state.obstacles) {

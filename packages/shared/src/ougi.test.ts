@@ -75,7 +75,7 @@ describe("firing", () => {
 });
 
 describe("shockwave", () => {
-  it("damages and flings a nearby enemy, paying the caster SP for the damage", () => {
+  it("damages a nearby enemy, paying the caster SP for the damage", () => {
     const state = arena([EMBER, GALE]);
     const [a, b] = state.ninjas as [SimState["ninjas"][number], SimState["ninjas"][number]];
     a.x = CLEAR_X;
@@ -90,10 +90,9 @@ describe("shockwave", () => {
     expect(b.hp).toBeCloseTo(MAX_HP - SHOCKWAVE_MAX_DAMAGE / 2, 5);
     expect(events.some((e) => e.type === "ninjaDamaged" && e.targetId === "b")).toBe(true);
     expect(a.sp).toBeCloseTo((SHOCKWAVE_MAX_DAMAGE / 2) * SP_PER_DAMAGE, 5);
-    expect(b.x).toBeGreaterThan(CLEAR_X + SHOCKWAVE_RADIUS / 2);
   });
 
-  it("never makes the flung ninja lethal", () => {
+  it("leaves the enemy standing where the blast caught it", () => {
     const state = arena([EMBER, GALE]);
     const [a, b] = state.ninjas as [SimState["ninjas"][number], SimState["ninjas"][number]];
     a.x = CLEAR_X;
@@ -103,9 +102,12 @@ describe("shockwave", () => {
     a.sp = MAX_SP;
 
     step(state, fire("a"));
+    for (let tick = 0; tick < 20; tick++) step(state);
 
-    expect(b.dashBudget).toBeGreaterThan(0);
-    expect(b.dashLethal).toBe(false);
+    // The burst is damage only, so there is no budget to travel and no way to be flung into a third party.
+    expect(b.x).toBe(CLEAR_X + 40);
+    expect(b.y).toBe(CLEAR_Y);
+    expect(b).toMatchObject({ dashBudget: 0, vx: 0, vy: 0 });
   });
 
   it("leaves an out-of-range enemy untouched", () => {

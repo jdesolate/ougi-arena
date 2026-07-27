@@ -39,9 +39,6 @@ export const SP_PER_DAMAGE = 0.5;
 /** Shockwave (Ember): instant radial burst, damage falling off linearly to nothing at the rim. */
 export const SHOCKWAVE_RADIUS = 220;
 export const SHOCKWAVE_MAX_DAMAGE = 60;
-/** How far the burst flings a caught ninja at the epicentre; also scaled by the falloff. */
-export const SHOCKWAVE_KNOCKBACK_DISTANCE = 140;
-export const SHOCKWAVE_KNOCKBACK_SPEED = 520;
 
 /** Surge (Gale): dash reach and TP tank both scale by this for the duration, and TP stays topped up. */
 export const SURGE_DURATION_SECONDS = 5;
@@ -55,7 +52,8 @@ export const CROSS_SLASH_LANE_HALF_WIDTH = 14;
  * Weapons. The cell patterns live in `weapon.ts`; these are the two numbers balance actually turns — damage per
  * swing and how often you may swing. Reach, coverage and speed are deliberately traded against each other:
  * the kunai has the highest sustained damage but only one cell of reach, the fan the widest cover, the
- * longsword the biggest single hit. All three chip HP; only a dash can instant-kill.
+ * longsword the biggest single hit. All three only chip HP — no weapon moves what it hits, and only a dash
+ * can instant-kill.
  */
 export const KUNAI_DAMAGE = 8;
 export const KUNAI_COOLDOWN_TICKS = 0.3 * SIM_TICK_RATE_HZ;
@@ -69,14 +67,6 @@ export const FAN_DAMAGE = 9;
 export const FAN_COOLDOWN_TICKS = 0.5 * SIM_TICK_RATE_HZ;
 export const LONGSWORD_DAMAGE = 20;
 export const LONGSWORD_COOLDOWN_TICKS = 0.9 * SIM_TICK_RATE_HZ;
-
-/**
- * The fan is the only weapon that *moves* its victim: one cell along the swing, which is what turns its wide
- * coverage into zone control rather than just three hitboxes. Kunai and longsword push nobody.
- */
-export const FAN_KNOCKBACK_CELLS = 1;
-/** Matches Shockwave's fling speed, so being pushed reads the same whatever pushed you. */
-export const WEAPON_KNOCKBACK_SPEED = SHOCKWAVE_KNOCKBACK_SPEED;
 
 /** KO'd ninjas sit out this long before respawning, then are invulnerable for a further window. */
 export const RESPAWN_DELAY_SECONDS = 3;

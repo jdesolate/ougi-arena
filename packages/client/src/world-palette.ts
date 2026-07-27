@@ -53,6 +53,3 @@ export const COLOR_SPAWN = 0xf97316;
 export const COLOR_SWING_STEEL = 0xf2f7ff;
 export const COLOR_SWING_WIND = 0x9fe3ff;
 export const COLOR_SWING_BLADE = 0xff3b1f;
-
-/** Kicked up by a knockback slide and by a body scraping to a halt — the floor's own tone, not the weapon's. */
-export const COLOR_DUST = 0x8a9ec4;

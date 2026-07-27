@@ -15,7 +15,7 @@ stop you shipping them, but it does mean the logo may not be an asset you can de
 | File | Source |
 |---|---|
 | `packages/client/public/assets/sprites/ninja.png` | [Roguelike Characters](https://kenney.nl/assets/roguelike-characters) by [Kenney](https://kenney.nl) — one 16x16 frame from the pack's spritesheet, recolored per character at runtime |
-| `packages/client/public/logo.webp`, `favicon.png` | Project brand logo — AI-generated, supplied by the author. Source file kept out of the bundle at `packages/client/brand/logo-source.png`; the shipped versions are circle-masked (the source has an opaque black background) and downscaled from 1254px |
+| `packages/client/public/logo.webp`, `favicon.png` | Project brand logo — AI-generated, supplied by the author. Sources kept out of the bundle in `packages/client/brand/`: `logo-source-v2.png` is the shipped design (1024px RGBA, already cut out); `logo-source.png` is the superseded first version. The shipped files are trimmed to the artwork's bounding box and downscaled — no masking needed on v2 |
 
 Weapon icons, map thumbnails, character portraits and every arena texture are drawn in code at runtime
 (`src/ui/weapon-icon.ts`, `src/ui/map-thumb.ts`, `src/ui/portrait.ts`, `src/scenes/GameScene.ts`) — no files to credit.

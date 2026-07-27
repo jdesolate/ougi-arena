@@ -236,3 +236,11 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - Selected cards gain a lift (`translateY(-3px)`) plus a stronger gold glow, with a short transition on all `.card`s.
 - Responsive: columns collapse to one at ≤760px, ahead of the existing ≤520px mobile pass which is unchanged; verified 375x812 has no horizontal overflow.
 - Verified in dev preview: layout renders, weapon selection swaps glow/lift/description correctly, zero console errors. Typecheck + lint green. **Next:** S20 arena faux-depth pass.
+
+## UI/UX polish pass — game-feel review (2026-07-27)
+
+- Post-S19 review pass (ui-ux-pro-max skill) toward an arcade game feel, keeping the ink-and-gold identity rather than the skill's synthwave palette suggestion.
+- Press Start 2P (Google Fonts, new external font dependency) as `--font-display`: glowing gold title + tagline, pixel-caps section labels with fading gold rules, pixel-face Quick Play.
+- Juice: Quick Play breathes a slow gold glow; picking a card pops its portrait/icon (animation re-runs per selection); panels get a top sheen; `.btn-quiet` gains hover fill + padding; room-list Join buttons were unstyled defaults and now use `.btn-quiet`.
+- Depth: body background is a lit radial vignette instead of a flat fill.
+- Accessibility: global gold `:focus-visible` ring, `prefers-reduced-motion` kills all animation/transitions; verified 375x812 no overflow, no console errors; typecheck + lint green.

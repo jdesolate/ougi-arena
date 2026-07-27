@@ -288,6 +288,7 @@ export function initLobby(onStart: (room: Room) => void): void {
       label.textContent = `${host}'s room · ${room.players}/${room.maxPlayers} · ${status}`;
 
       const joinRoomBtn = document.createElement("button");
+      joinRoomBtn.className = "btn-quiet";
       joinRoomBtn.textContent = "Join";
       joinRoomBtn.addEventListener("click", () => {
         showError("");

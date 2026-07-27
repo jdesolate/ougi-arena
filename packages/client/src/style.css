@@ -53,15 +53,38 @@
   --surface: var(--ink-800);
   --surface-raised: var(--ink-650);
   --surface-inset: var(--ink-950);
+
+  /* Arcade display face for the title and primary CTAs; body copy stays system-ui. */
+  --font-display: "Press Start 2P", ui-monospace, monospace;
 }
 
 [hidden] {
   display: none !important;
 }
 
+/* Keyboard players get the same gold ring everywhere; inputs override with their own inset ring. */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 body {
   margin: 0;
-  background: var(--bg);
+  /* A lit vignette instead of a flat fill: the arena glow the panels sit inside. */
+  background:
+    radial-gradient(ellipse 120% 70% at 50% -10%, #232c52 0%, transparent 60%),
+    var(--bg);
+  min-height: 100vh;
   color: var(--text);
   font-family: system-ui, sans-serif;
   /* Kills the 300ms double-tap delay on touch without taking pinch-zoom away from the player. */
@@ -92,6 +115,7 @@ body {
   border-radius: var(--radius);
   box-shadow:
     inset 0 0 0 1px var(--wood-dark),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 4px 16px rgba(0, 0, 0, 0.45);
 }
 
@@ -110,6 +134,7 @@ body {
 
 /* Chunky arcade action button: gold face, pressed-in travel on click. */
 .btn-arcade {
+  padding: 10px;
   background: linear-gradient(var(--gold), var(--gold-deep));
   color: var(--ink-850);
   font-weight: bold;
@@ -134,14 +159,19 @@ body {
 
 /* Quiet secondary button for room plumbing (create/join/copy). */
 .btn-quiet {
+  padding: 8px 12px;
   background: var(--surface-raised);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 .btn-quiet:hover:not([disabled]) {
   border-color: var(--ink-300);
+  background: var(--ink-500);
 }
 
 /* Selectable card (characters, weapons, maps): gold glow when picked. */
@@ -164,6 +194,21 @@ body {
   background: var(--surface-raised);
   box-shadow: 0 0 10px rgba(255, 209, 102, 0.45);
   transform: translateY(-3px);
+}
+/* The pick pops: the animation re-runs each time the selector newly matches. */
+.card[aria-pressed="true"] canvas {
+  animation: pick-pop 0.25s ease-out;
+}
+@keyframes pick-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 .card[disabled] {
   cursor: default;
@@ -194,7 +239,18 @@ body {
 }
 #lobby h1 {
   text-align: center;
-  letter-spacing: 0.06em;
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: normal;
+  color: var(--gold);
+  text-shadow:
+    0 0 12px rgba(255, 209, 102, 0.4),
+    0 3px 0 var(--wood-dark);
+  margin: 8px 0 0;
+}
+#tagline {
+  text-align: center;
+  color: var(--text-dim);
   margin: 0 0 8px;
 }
 /* Landing: picks on the left, play actions on the right; each column its own framed panel. */
@@ -259,14 +315,42 @@ body {
   justify-content: space-between;
   gap: 8px;
 }
+/* The one action that matters most on the page: pixel face + a slow breathing glow. */
 #quick-play-btn {
-  padding: 10px;
-  font-size: 1.1rem;
+  padding: 16px 10px;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  animation: cta-breathe 2.4s ease-in-out infinite;
 }
+@keyframes cta-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 6px rgba(255, 209, 102, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(255, 209, 102, 0.55);
+  }
+}
+/* Section labels: small gold caps with a rule running to the edge, arcade-menu style. */
 #lobby h2 {
-  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.72rem;
+  font-family: var(--font-display);
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   margin: 8px 0 0;
-  color: var(--text-dim);
+  color: var(--gold);
+}
+#lobby h2::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, var(--gold-deep), transparent);
+  opacity: 0.5;
 }
 #room-list-empty {
   margin: 0;

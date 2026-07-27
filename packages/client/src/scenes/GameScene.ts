@@ -18,6 +18,7 @@ import {
   snapToCellCentre,
   step,
   weaponFor,
+  type Aabb,
   type ArenaMap,
   type LaunchCommand,
   type SimEvent,
@@ -39,12 +40,22 @@ import {
 } from "./effects.js";
 import {
   COLOR_BORDER,
+  COLOR_BORDER_FACE,
   COLOR_FLOOR,
+  COLOR_FLOOR_LINE,
+  COLOR_FLOOR_TILE,
   COLOR_OBSTACLE_BROKEN,
+  COLOR_OBSTACLE_EDGE,
   COLOR_OBSTACLE_FRESH,
   COLOR_PILLAR_BODY,
+  COLOR_PILLAR_BODY_DARK,
   COLOR_PILLAR_EDGE,
   COLOR_PILLAR_TOP,
+  COLOR_PILLAR_TOP_LIT,
+  COLOR_SHADOW,
+  SHADOW_ALPHA,
+  SHADOW_OFFSET_X,
+  SHADOW_OFFSET_Y,
 } from "../world-palette.js";
 
 const SIM_DT_MS = SIM_DT * 1000;
@@ -82,7 +93,14 @@ const COUNTDOWN_FROM_SECONDS = 5;
 /** Runtime-generated, like the spark: a pillar is a flat-shaded block, not art worth shipping a file for. */
 const PILLAR_TEXTURE_KEY = "pillar";
 /** How far a pillar rises above its own cell. This overhang is the whole point of Y-sorting them. */
-const PILLAR_RISE = 34;
+const PILLAR_RISE = 52;
+/** How much of the top face catches the ember key light before it falls off into the body's tone. */
+const PILLAR_TOP_LIT_BAND = 14;
+
+/** Tiled across the arena on the sim's own grid, so the cells a dash snaps to are visible while standing still. */
+const FLOOR_TEXTURE_KEY = "floor-tile";
+/** The floor sits below `DEPTH_WORLD` so obstacles, shadows and the border still draw over it. */
+const DEPTH_FLOOR = -10;
 
 /** Loosely-typed view of the server schema — the client bundle doesn't share the schema classes. */
 interface NinjaView {
@@ -213,6 +231,7 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     this.worldGfx = this.add.graphics().setDepth(DEPTH_WORLD);
+    this.createFloor();
     this.createPillars();
     this.effects.create();
     this.overlayGfx = this.add.graphics().setDepth(DEPTH_OVERLAY);
@@ -278,13 +297,19 @@ export class GameScene extends Phaser.Scene {
     const height = CELL + PILLAR_RISE;
     if (!this.textures.exists(PILLAR_TEXTURE_KEY)) {
       const g = this.make.graphics({}, false);
-      g.fillStyle(COLOR_PILLAR_BODY, 1);
+      // Body darkens toward the floor, top face brightens toward its front lip — two bands each, no gradients,
+      // because the rest of the arena is flat-shaded and a smooth ramp would read as a different game.
+      g.fillStyle(COLOR_PILLAR_BODY_DARK, 1);
       g.fillRect(0, PILLAR_RISE, CELL, CELL);
+      g.fillStyle(COLOR_PILLAR_BODY, 1);
+      g.fillRect(0, PILLAR_RISE, CELL, CELL * 0.45);
       g.fillStyle(COLOR_PILLAR_TOP, 1);
       g.fillRect(0, 0, CELL, PILLAR_RISE);
-      // A single dark keyline is enough to separate two adjacent pillars into two blocks.
-      g.lineStyle(2, COLOR_PILLAR_EDGE, 1);
-      g.strokeRect(1, 1, CELL - 2, height - 2);
+      g.fillStyle(COLOR_PILLAR_TOP_LIT, 1);
+      g.fillRect(0, PILLAR_RISE - PILLAR_TOP_LIT_BAND, CELL, PILLAR_TOP_LIT_BAND);
+      // A heavy dark keyline separates two adjacent pillars into two blocks, and echoes the logo's outlines.
+      g.lineStyle(3, COLOR_PILLAR_EDGE, 1);
+      g.strokeRect(1.5, 1.5, CELL - 3, height - 3);
       g.lineBetween(0, PILLAR_RISE, CELL, PILLAR_RISE);
       g.generateTexture(PILLAR_TEXTURE_KEY, CELL, height);
       g.destroy();
@@ -294,6 +319,68 @@ export class GameScene extends Phaser.Scene {
       const bottom = pillar.y + pillar.halfH;
       this.add.image(pillar.x, bottom, PILLAR_TEXTURE_KEY).setOrigin(0.5, 1).setDepth(ySortDepth(bottom));
     }
+  }
+
+  /**
+   * The floor is one tiled sprite rather than per-frame fills: it never changes, and tiling it on `CELL` makes
+   * the sim's grid legible, so a player can see the tiles a dash will snap to before they start dragging.
+   */
+  private createFloor(): void {
+    if (!this.textures.exists(FLOOR_TEXTURE_KEY)) {
+      const g = this.make.graphics({}, false);
+      g.fillStyle(COLOR_FLOOR, 1);
+      g.fillRect(0, 0, CELL, CELL);
+      // An inset panel plus seam lines: enough texture to feel like flagstones, quiet enough to stay a floor.
+      g.fillStyle(COLOR_FLOOR_TILE, 1);
+      g.fillRect(4, 4, CELL - 8, CELL - 8);
+      g.lineStyle(2, COLOR_FLOOR_LINE, 1);
+      g.strokeRect(1, 1, CELL - 2, CELL - 2);
+      g.generateTexture(FLOOR_TEXTURE_KEY, CELL, CELL);
+      g.destroy();
+    }
+
+    this.add
+      .tileSprite(0, 0, this.map.width, this.map.height, FLOOR_TEXTURE_KEY)
+      .setOrigin(0, 0)
+      .setDepth(DEPTH_FLOOR);
+  }
+
+  /**
+   * The border is drawn as a wall rather than a flat frame: the edge turned toward the arena gets a lit face
+   * and a hard keyline, so the playfield reads as sunk inside walls instead of painted onto a rectangle.
+   */
+  private drawBorderFace(g: Phaser.GameObjects.Graphics, wall: Aabb): void {
+    const face = 12;
+    const left = wall.x - wall.halfW;
+    const top = wall.y - wall.halfH;
+    const w = wall.halfW * 2;
+    const h = wall.halfH * 2;
+    const horizontal = w >= h;
+
+    g.fillStyle(COLOR_BORDER_FACE, 1);
+    g.lineStyle(3, COLOR_PILLAR_EDGE, 1);
+    if (horizontal) {
+      const inner = wall.y < this.map.height / 2 ? top + h - face : top;
+      g.fillRect(left, inner, w, face);
+      const edgeY = wall.y < this.map.height / 2 ? top + h : top;
+      g.lineBetween(left, edgeY, left + w, edgeY);
+    } else {
+      const inner = wall.x < this.map.width / 2 ? left + w - face : left;
+      g.fillRect(inner, top, face, h);
+      const edgeX = wall.x < this.map.width / 2 ? left + w : left;
+      g.lineBetween(edgeX, top, edgeX, top + h);
+    }
+  }
+
+  /** One light for the whole arena: everything standing above the floor drops the same offset shadow. */
+  private dropShadow(g: Phaser.GameObjects.Graphics, box: Aabb): void {
+    g.fillStyle(COLOR_SHADOW, SHADOW_ALPHA);
+    g.fillRect(
+      box.x - box.halfW + SHADOW_OFFSET_X,
+      box.y - box.halfH + SHADOW_OFFSET_Y,
+      box.halfW * 2,
+      box.halfH * 2,
+    );
   }
 
   private toggleDebug(): void {
@@ -850,14 +937,15 @@ export class GameScene extends Phaser.Scene {
     const state = this.state();
     g.clear();
 
-    g.fillStyle(COLOR_FLOOR, 1);
-    g.fillRect(0, 0, map.width, map.height);
-
-    // Pillars are images placed once in `createPillars`, so only the flat frame is redrawn here.
-    g.fillStyle(COLOR_BORDER, 1);
+    // The floor is a tile sprite placed once in `createFloor`; pillars are images from `createPillars`.
     for (const wall of map.border) {
+      g.fillStyle(COLOR_BORDER, 1);
       g.fillRect(wall.x - wall.halfW, wall.y - wall.halfH, wall.halfW * 2, wall.halfH * 2);
+      this.drawBorderFace(g, wall);
     }
+
+    // Pillars are static, but their shadows fall on the floor beneath every sprite, so they belong here.
+    for (const pillar of map.pillars) this.dropShadow(g, pillar);
 
     for (let i = 0; i < map.obstacles.length; i++) {
       const box = map.obstacles[i];
@@ -871,8 +959,14 @@ export class GameScene extends Phaser.Scene {
         1,
         healthFrac,
       );
+      this.dropShadow(g, box);
       g.fillStyle(Phaser.Display.Color.GetColor(color.r, color.g, color.b), 1);
       g.fillRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 2);
+      // A lit top strip plus the same heavy keyline the pillars carry, so cover reads as a solid object.
+      g.fillStyle(0xffffff, 0.14);
+      g.fillRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 0.4);
+      g.lineStyle(3, COLOR_OBSTACLE_EDGE, 1);
+      g.strokeRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 2);
     }
 
     const overlay = this.overlayGfx;
@@ -894,6 +988,15 @@ export class GameScene extends Phaser.Scene {
       // Invulnerable (just-respawned) ninjas flicker so a hit-them-now-or-wait decision reads at a glance.
       const invulnerable = serverNinja.invulnerableTicks > 0;
       const alpha = invulnerable ? 0.5 + 0.5 * Math.sin(performance.now() / 80) : 1;
+
+      // Grounds the sprite: without it a ninja sliding past a tall pillar reads as floating over the floor.
+      g.fillStyle(COLOR_SHADOW, SHADOW_ALPHA);
+      g.fillEllipse(
+        pos.x + SHADOW_OFFSET_X * 0.5,
+        pos.y + NINJA_RADIUS * 0.7,
+        NINJA_RADIUS * 1.9,
+        NINJA_RADIUS * 0.8,
+      );
 
       sprite.setVisible(true);
       sprite.setPosition(pos.x, pos.y);

@@ -27,7 +27,7 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 ## 3. Target users
 
 1. **The author and friends** playing casual matches via Quick Play or shared links.
-2. **Invited strangers** (communities, social posts) who should get into a fun match with zero instructions.
+2. **Invited strangers** (communities, social posts) who should get into a fun match without reading anything first — movement is discoverable by grabbing your ninja, and the one input that isn't (the swing, FR-25) is taught in-place by the countdown legend rather than by a manual or a tutorial gate.
 3. **Recruiters/engineers** skimming the README and demo video (secondary).
 
 ## 4. Functional requirements
@@ -35,7 +35,7 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 ### 4.1 Rooms and lobby
 - FR-1: Create a room from the landing page (public by default, private toggle); receive a shareable URL (`/r/<code>`).
 - FR-2: Join via link, Quick Play (auto-joins an open public room or creates one), or the public room list on the landing page.
-- FR-3: Join flow asks only for a nickname (free text, length-capped) and character selection.
+- FR-3: Join flow asks only for a nickname (free text, length-capped), character selection, and weapon selection. *(Weapon added 2026-07-27: S15 made it a separate pick from character, per FR-22.)*
 - FR-4: Rooms hold 2–4 players; host starts the match; host migrates to the oldest player on disconnect.
 - FR-5: Mid-match joiners spectate until the next match; rematch button restarts within the same room.
 - FR-6: Rooms live in server memory only and are destroyed when empty.
@@ -52,7 +52,9 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 - FR-22: Every ninja carries one melee weapon, picked at character select independently of character (character decides the Ougi, weapon decides the attack). At least 3 weapons ship: **kunai** (1 cell in front, fastest, lowest damage), **paper fan** (3 cells — front, front-left, front-right, medium speed and damage), **longsword** (2 cells — front and one beyond, slowest, highest damage).
 - FR-23: An attack hits a fixed set of grid cells relative to the swing direction, snapped to the same 4 cardinals as movement; a cell is obstacle-box sized so "one box in front" is literal. Attacks chip HP (KO at 0) rather than instant-killing, charge SP by damage dealt like any other damage source, and damage destructible obstacles in the hit cells. Dash-shatter (FR-9) remains the only instant kill.
 - FR-24: Each weapon has its own attack speed, enforced as a per-weapon cooldown; an attack requested during cooldown is dropped, not queued. Attacks cost no TP.
-- FR-25: Attack input is a tap/click on a spot away from your own ninja, which swings in that direction — one input scheme for touch and desktop alike. The swing animation and its sound play locally at 0ms; the server resolves all damage.
+- FR-25: Attack input is a tap/click **on your own ninja** (the same grab radius a dash starts from) released without dragging, which swings in the direction the ninja already faces — one input scheme for touch and desktop alike. The swing animation and its sound play locally at 0ms; the server resolves all damage. *(Revised 2026-07-27 to match what S15 shipped: this specified a tap on a spot away from your ninja, swinging in that direction. S15 instead branched the existing press-and-hold gesture on drag distance — under 10px is a swing, beyond it a dash — so no second gesture or pointer path was needed, and a press outside the grab radius is still ignored entirely. The divergence was never recorded at the time.)*
+- FR-30: The swing gesture is not discoverable on its own — it is the absence of a drag inside a gesture that otherwise charges TP — so it must be taught explicitly. A control legend showing all four inputs (drag to dash, tap to swing, hold to charge, Space for ougi) is shown during the match-start countdown, over a frozen arena, before the first fight of a session. *(Added 2026-07-27 after playtesting: a player who never happened to tap their own ninja only ever dashed.)*
+- FR-31: Every match, including a rematch, opens with a countdown during which the authoritative simulation does not advance, bots do not act, and player commands are held. The countdown is a real pause in the match, not an overlay drawn over a live one.
 - FR-26: Each ninja renders its nickname above its HP bar, small but always legible; bots are labeled and the local player's own plate is visually distinguished. Characters repeat within a room, so a plate is the only way to find yourself mid-fight.
 - FR-27: Arenas are built on an 80-unit cell grid — the same unit weapon patterns are measured in — giving a 15 x 8 playable board. Layouts follow the reference game's shape: dense pillars forming 1-cell choke points, open mid-lanes for dodging, and breakable clutter in corner pockets.
 - FR-28: A dash resolves to the nearest cell centre along its axis, clamped down to the nearest cell the player's TP can actually reach. A ninja knocked off-grid (Ougi knockback, an idle bump, a dash hard-stopped mid-cell by a pillar) is realigned by its next dash — snapping the destination, not the position, means no ninja can be wedged between cells.
@@ -83,6 +85,7 @@ Primary purpose: **a game the author genuinely enjoys and can share** — seamle
 ## 6. Success criteria
 
 - A stranger can go from landing page to their first dash in under 30 seconds with no instructions, alone (bots) or with friends.
+- That same stranger lands their first *swing* in their first match — the criterion the original "no instructions" bar quietly failed, since the gesture can't be stumbled into (FR-25, FR-30).
 - Matches at 150ms simulated RTT feel responsive in blind playtests with friends.
 - A wifi drop mid-match reconnects into the same match without losing the slot.
 - The author still *wants* to play it after shipping — the fun bar, not just the works bar.

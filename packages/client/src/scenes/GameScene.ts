@@ -20,6 +20,7 @@ import {
   snapToCellCentre,
   step,
   weaponFor,
+  WEAPON_KNOCKBACK_SPEED,
   type Aabb,
   type ArenaMap,
   type LaunchCommand,
@@ -44,6 +45,7 @@ import {
 import {
   COLOR_BORDER,
   COLOR_BORDER_FACE,
+  COLOR_DUST,
   COLOR_FLOOR,
   COLOR_FLOOR_LINE,
   COLOR_FLOOR_TILE,
@@ -56,6 +58,7 @@ import {
   COLOR_PILLAR_TOP,
   COLOR_PILLAR_TOP_LIT,
   COLOR_SHADOW,
+  COLOR_SWING_STEEL,
   SHADOW_ALPHA,
   SHADOW_OFFSET_X,
   SHADOW_OFFSET_Y,
@@ -74,6 +77,12 @@ const TAP_DRAG_THRESHOLD = 10;
  * closest fit already in the pack, leveled per weapon so a longsword reads heavier than a kunai poke.
  */
 const WEAPON_SFX_VOLUME: Record<string, number> = { kunai: 0.35, fan: 0.45, longsword: 0.55 };
+/** World units a swing throws the attacker's drawing forward, scaled to how much the weapon commits its body. */
+const WEAPON_LUNGE: Record<string, number> = { kunai: 12, fan: 6, longsword: 16 };
+
+/** How long a struck destructible keeps shaking, and how far — enough to register the hit, short of comedy. */
+const OBSTACLE_WOBBLE_MS = 200;
+const OBSTACLE_WOBBLE_PX = 4;
 
 /** Render remote ninjas this far in the past so there's always a pair of snapshots to interpolate between. */
 const INTERP_DELAY_MS = 100;
@@ -202,6 +211,13 @@ export class GameScene extends Phaser.Scene {
   private readonly nameplates = new Map<string, Phaser.GameObjects.Text>();
   /** Drives the countdown beep off whole-second changes rather than every state sync. */
   private lastTimeRemaining = -1;
+
+  /** Purely visual displacement per ninja (the swing lunge), added to the sim position at draw time. */
+  private readonly renderNudges = new Map<string, { x: number; y: number }>();
+  /** Each ninja's last swing direction, so a hit's slash mark can be laid across the blow that landed it. */
+  private readonly lastSwingDir = new Map<string, { x: number; y: number }>();
+  /** Obstacle id → when it was last struck, so `drawWorld` can shake it without owning a tween per box. */
+  private readonly obstacleWobble = new Map<number, number>();
 
   private readonly hudEl = el<HTMLDivElement>("hud");
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
@@ -479,24 +495,46 @@ export class GameScene extends Phaser.Scene {
           const box = this.map.obstacles[event.obstacleId];
           if (!box) break;
           this.effects.burst(box.x, box.y, 0xd8a83c, 8);
+          // Cover that survived a hit shakes it off, so a chip reads as damage rather than a missed swing.
+          this.obstacleWobble.set(event.obstacleId, performance.now());
           break;
         }
         case "obstacleDestroyed": {
           const box = this.map.obstacles[event.obstacleId];
           if (!box) break;
-          this.effects.burst(box.x, box.y, 0xd8a83c, 24);
+          this.effects.burst(box.x, box.y, 0xd8a83c, 20);
+          this.effects.shatter(box.x, box.y, COLOR_OBSTACLE_FRESH, 16);
           this.effects.puff(box.x, box.y, 0x8a6b30, 8);
           this.effects.shake(120, 0.004);
+          this.obstacleWobble.delete(event.obstacleId);
           playSfx(this, "break", 0.5);
           break;
         }
         case "ninjaDamaged": {
           const pos = this.renderPos(event.targetId);
-          if (pos) this.effects.burst(pos.x, pos.y, 0xff5252, 10);
+          if (pos) {
+            this.effects.burst(pos.x, pos.y, 0xff5252, 10);
+            this.effects.slash(pos.x, pos.y, this.hitAngle(event.sourceId, pos.x, pos.y), COLOR_SWING_STEEL);
+          }
           playSfx(this, "hit", 0.5);
           if (this.involvesLocal(event.targetId, event.sourceId)) {
             this.effects.hitPause(HIT_PAUSE_MS);
             this.effects.shake(90, 0.005);
+          }
+          break;
+        }
+        case "ninjaKnockback": {
+          // The push starts at the victim's feet and drags across the floor, so the dust does too.
+          const pos = this.renderPos(event.targetId);
+          if (pos) {
+            this.effects.dust(pos.x, pos.y + NINJA_RADIUS * 0.6, COLOR_DUST, 7);
+            this.time.delayedCall(90, () => {
+              const later = this.renderPos(event.targetId);
+              if (later) this.effects.dust(later.x, later.y + NINJA_RADIUS * 0.6, COLOR_DUST, 5);
+            });
+          }
+          if (event.targetId === this.localId) {
+            this.applyLocalKnockback(event.dirX, event.dirY, event.distance);
           }
           break;
         }
@@ -555,19 +593,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Swing juice: a burst at each cell the weapon's pattern would hit (cover isn't checked here — it's cosmetic,
-   * the server resolves the real damage) plus a squash-tween on the sprite and a per-weapon leveled SFX.
+   * Swing juice, per weapon: the shaped flash from `effects.ts` rotated down the cardinal it was aimed at, a
+   * lunge in that direction, and a leveled SFX. Nothing here checks cover — the swing is what the attacker
+   * committed to, and what it actually connected with arrives as its own damage events.
    */
   private weaponEffect(ninjaId: string, weaponId: string, x: number, y: number, dirX: number, dirY: number): void {
-    const weapon = weaponFor(weaponId);
-    const skin = skinFor(this.characterIdOf(ninjaId));
-    const rightX = -dirY;
-    const rightY = dirX;
-    for (const cell of weapon.cells) {
-      const cx = x + (dirX * cell.forward + rightX * cell.lateral) * CELL;
-      const cy = y + (dirY * cell.forward + rightY * cell.lateral) * CELL;
-      this.effects.burst(cx, cy, skin.bodyColor, 5);
-    }
+    // Remembered so a hit landing later this tick can lay its slash mark across the blow that caused it.
+    this.lastSwingDir.set(ninjaId, { x: dirX, y: dirY });
+
+    this.effects.swing(weaponId, x, y, Math.atan2(dirY, dirX));
+    this.lunge(ninjaId, dirX, dirY, WEAPON_LUNGE[weaponId] ?? 8);
     playSfx(this, "wall", WEAPON_SFX_VOLUME[weaponId] ?? 0.4);
 
     const sprite = this.ninjaSprites.get(ninjaId);
@@ -581,6 +616,51 @@ export class GameScene extends Phaser.Scene {
       duration: 140,
       ease: "Quad.easeOut",
     });
+  }
+
+  /**
+   * Throws a ninja's *drawing* a few units down the swing and back. Kept as a render offset rather than a tween
+   * on the sprite, because `drawWorld` repositions every sprite each frame from the sim and would fight it.
+   */
+  private lunge(ninjaId: string, dirX: number, dirY: number, distance: number): void {
+    const nudge = this.renderNudges.get(ninjaId) ?? { x: 0, y: 0 };
+    this.renderNudges.set(ninjaId, nudge);
+    this.tweens.killTweensOf(nudge);
+    nudge.x = 0;
+    nudge.y = 0;
+    this.tweens.add({
+      targets: nudge,
+      x: dirX * distance,
+      y: dirY * distance,
+      duration: 70,
+      yoyo: true,
+      ease: "Quad.easeOut",
+    });
+  }
+
+  /** Which way a hit came from, so its slash mark lies across the blow: the attacker's swing if it was one. */
+  private hitAngle(sourceId: string, targetX: number, targetY: number): number {
+    const swing = this.lastSwingDir.get(sourceId);
+    if (swing) return Math.atan2(swing.y, swing.x) + Math.PI / 2;
+    const from = this.renderPos(sourceId);
+    if (from) return Math.atan2(targetY - from.y, targetX - from.x) + Math.PI / 2;
+    return Math.PI / 4;
+  }
+
+  /**
+   * The push the server just applied to *us*, replayed in the prediction sim so it renders as a slide. Without
+   * it the local ninja stands still and then jumps a cell when reconciliation snaps at rest (S23 open issue 1);
+   * with it both sims run the same deterministic push, so cover hard-stops it identically and the snap is a
+   * rounding correction rather than a teleport. Remote ninjas need none of this — interpolation slides them.
+   */
+  private applyLocalKnockback(dirX: number, dirY: number, distance: number): void {
+    const ninja = this.localNinja();
+    if (!ninja || !ninja.active) return;
+    ninja.vx = dirX * WEAPON_KNOCKBACK_SPEED;
+    ninja.vy = dirY * WEAPON_KNOCKBACK_SPEED;
+    ninja.dashBudget = distance;
+    // Being shoved must never shatter whoever you land on — the same rule the sim's own push follows.
+    ninja.dashLethal = false;
   }
 
   /** Aimed swing: a tap away from your own ninja swings toward that point, snapped to the nearest cardinal axis. */
@@ -639,6 +719,11 @@ export class GameScene extends Phaser.Scene {
       this.ninjaSprites.clear();
       for (const nameplate of this.nameplates.values()) nameplate.destroy();
       this.nameplates.clear();
+      // Same leak class: these are keyed by ninja id, and a rematch mints new bot ids.
+      for (const nudge of this.renderNudges.values()) this.tweens.killTweensOf(nudge);
+      this.renderNudges.clear();
+      this.lastSwingDir.clear();
+      this.obstacleWobble.clear();
     }
     if (this.lastPhase !== state.phase) {
       if (state.phase === "playing") playSfx(this, "match-start", 0.5, false);
@@ -1021,20 +1106,35 @@ export class GameScene extends Phaser.Scene {
       if (!box || !obstacle || !obstacle.alive) continue;
       // Faded against the box's own starting HP, so hay and crates both read as fresh-to-broken.
       const healthFrac = clamp(obstacle.hp / box.hp, 0, 1);
+      // A struck box rattles on the spot: a decaying shake, drawn rather than tweened since the boxes are
+      // Graphics fills redrawn every frame and have no object of their own to tween.
+      const struckAt = this.obstacleWobble.get(i);
+      let wobble = 0;
+      if (struckAt !== undefined) {
+        const elapsed = performance.now() - struckAt;
+        if (elapsed >= OBSTACLE_WOBBLE_MS) this.obstacleWobble.delete(i);
+        else {
+          const decay = 1 - elapsed / OBSTACLE_WOBBLE_MS;
+          wobble = Math.sin(elapsed / 14) * OBSTACLE_WOBBLE_PX * decay;
+        }
+      }
       const color = Phaser.Display.Color.Interpolate.ColorWithColor(
         Phaser.Display.Color.IntegerToColor(COLOR_OBSTACLE_BROKEN),
         Phaser.Display.Color.IntegerToColor(COLOR_OBSTACLE_FRESH),
         1,
         healthFrac,
       );
+      // The shadow stays put while the box rattles above it, which is what makes the rattle read as movement.
       this.dropShadow(g, box);
+      const left = box.x - box.halfW + wobble;
+      const top = box.y - box.halfH;
       g.fillStyle(Phaser.Display.Color.GetColor(color.r, color.g, color.b), 1);
-      g.fillRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 2);
+      g.fillRect(left, top, box.halfW * 2, box.halfH * 2);
       // A lit top strip plus the same heavy keyline the pillars carry, so cover reads as a solid object.
       g.fillStyle(0xffffff, 0.14);
-      g.fillRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 0.4);
+      g.fillRect(left, top, box.halfW * 2, box.halfH * 0.4);
       g.lineStyle(3, COLOR_OBSTACLE_EDGE, 1);
-      g.strokeRect(box.x - box.halfW, box.y - box.halfH, box.halfW * 2, box.halfH * 2);
+      g.strokeRect(left, top, box.halfW * 2, box.halfH * 2);
     }
 
     const overlay = this.overlayGfx;
@@ -1043,15 +1143,19 @@ export class GameScene extends Phaser.Scene {
 
     for (const serverNinja of state.ninjas) {
       const isLocal = serverNinja.id === this.localId;
-      const pos = isLocal ? this.localNinja() : this.interpolated(serverNinja.id);
+      const simPos = isLocal ? this.localNinja() : this.interpolated(serverNinja.id);
       const sprite = this.spriteFor(serverNinja.id);
       seen.add(serverNinja.id);
 
-      if (!pos || !pos.active) {
+      if (!simPos || !simPos.active) {
         sprite.setVisible(false);
         this.nameplates.get(serverNinja.id)?.setVisible(false);
         continue;
       }
+
+      // The swing lunge displaces the whole ninja — sprite, shadow, bar and plate — so it moves as one body.
+      const nudge = this.renderNudges.get(serverNinja.id);
+      const pos = nudge ? { x: simPos.x + nudge.x, y: simPos.y + nudge.y } : simPos;
 
       // Invulnerable (just-respawned) ninjas flicker so a hit-them-now-or-wait decision reads at a glance.
       const invulnerable = serverNinja.invulnerableTicks > 0;

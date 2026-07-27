@@ -45,3 +45,14 @@ export const COLOR_OBSTACLE_EDGE = 0x0b0f1c;
 
 /** Ember, not gold: gold now means one thing only (ougi charged / winner), and a spawn tile is neither. */
 export const COLOR_SPAWN = 0xf97316;
+
+/**
+ * Weapon light. Each swing gets its own colour so you can read what hit you from the flash alone: steel-white
+ * for the kunai's thrust, pale ice for the fan's wind, ember-red edged in silver for the longsword's arc.
+ */
+export const COLOR_SWING_STEEL = 0xf2f7ff;
+export const COLOR_SWING_WIND = 0x9fe3ff;
+export const COLOR_SWING_BLADE = 0xff3b1f;
+
+/** Kicked up by a knockback slide and by a body scraping to a halt — the floor's own tone, not the weapon's. */
+export const COLOR_DUST = 0x8a9ec4;

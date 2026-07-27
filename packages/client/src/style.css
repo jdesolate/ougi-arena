@@ -718,6 +718,66 @@ body {
 
 /* ---- Match end ---------------------------------------------------------- */
 
+/* ---- Match-start countdown ---------------------------------------------- */
+
+/*
+ * Shares the match-end overlay's vocabulary (full-bleed scrim, display face, ember) but stays transparent to
+ * the pointer — the arena behind it is the thing the legend is teaching, and it must not be covered up.
+ */
+#countdown {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  pointer-events: none;
+  background: radial-gradient(ellipse 70% 50% at 50% 45%, rgba(0, 0, 0, 0.55) 0%, transparent 75%);
+}
+#countdown-number {
+  font-family: var(--font-display);
+  font-size: 6rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ember);
+  -webkit-text-stroke: 3px var(--outline);
+  text-shadow: 0 4px 0 var(--outline);
+}
+/* Each number is its own beat: the pop restarts whenever the text changes, driven by a re-added class. */
+#countdown-number.beat {
+  animation: countdown-pop 0.4s ease-out;
+}
+@keyframes countdown-pop {
+  from {
+    transform: scale(1.6);
+    opacity: 0.3;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+#countdown-legend {
+  list-style: none;
+  margin: 0;
+  padding: 12px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 24px;
+  max-width: min(90vw, 620px);
+  background: rgba(11, 15, 28, 0.75);
+  border: 3px solid var(--outline);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+#countdown-legend b {
+  color: var(--ember-light);
+}
+
 #match-end {
   position: fixed;
   inset: 0;
@@ -841,6 +901,13 @@ body {
   #hud-weapon-frame {
     width: 34px;
     height: 34px;
+  }
+  #countdown-number {
+    font-size: 4rem;
+  }
+  #countdown-legend {
+    font-size: 0.8rem;
+    gap: 4px 14px;
   }
   #match-end-panel {
     min-width: 0;

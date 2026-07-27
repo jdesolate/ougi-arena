@@ -2,11 +2,13 @@ import Phaser from "phaser";
 import type { Room } from "colyseus.js";
 import {
   CELL,
+  COUNTDOWN_FIGHT_TICKS,
   MAX_HP,
   MAX_SP,
   MAX_TP,
   NINJA_RADIUS,
   SIM_DT,
+  SIM_TICK_RATE_HZ,
   clamp,
   createSimState,
   dashDistanceFor,
@@ -136,6 +138,7 @@ interface PlayerView {
 }
 interface ArenaStateView {
   phase: string;
+  countdownTicks: number;
   mapId: string;
   tick: number;
   matchTimeRemaining: number;
@@ -212,6 +215,10 @@ export class GameScene extends Phaser.Scene {
   private readonly hudOugiBtn = el<HTMLButtonElement>("hud-ougi-btn");
   /** Tracks which weapon's icon is currently painted onto the canvas, so it's only redrawn on change. */
   private lastDrawnWeaponId = "";
+  private readonly countdownEl = el<HTMLDivElement>("countdown");
+  private readonly countdownNumberEl = el<HTMLDivElement>("countdown-number");
+  /** Last text painted into the countdown, so each new beat retriggers the pop animation exactly once. */
+  private lastCountdownText = "";
   private readonly matchEndEl = el<HTMLDivElement>("match-end");
   private readonly matchEndTitleEl = el<HTMLHeadingElement>("match-end-title");
   private readonly matchEndResultsEl = el<HTMLUListElement>("match-end-results");
@@ -277,6 +284,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, deltaMs: number): void {
+    // The server holds its sim through the countdown, so the prediction sim has to hold too — and the
+    // accumulator has to stay empty, or the frame the freeze lifts would replay the whole countdown at once.
+    if (this.state().phase === "countdown") {
+      this.accumulatorMs = 0;
+      this.pendingLocalCommand = null;
+      this.drawWorld();
+      return;
+    }
+
     if (this.localSim) {
       // The accumulator keeps filling through a hit-pause, so the freeze is purely visual: the steps it holds
       // back all run on the frame it ends, and the local sim stays aligned with wall-clock time.
@@ -578,8 +594,14 @@ export class GameScene extends Phaser.Scene {
     this.weaponEffect(this.localId, mine.weaponId, ninja.x, ninja.y, dir.x, dir.y);
   }
 
+  /** The frozen arena reads as playable, so every input path checks the phase rather than trusting the overlay. */
+  private acceptingInput(): boolean {
+    return this.state().phase === "playing";
+  }
+
   /** Ougis run server-side only — nothing is predicted locally, so the effect lands a round trip later. */
   private fireOugi(): void {
+    if (!this.acceptingInput()) return;
     const mine = this.serverNinja();
     if (!mine || !mine.active || mine.sp < MAX_SP) return;
     this.room.send("ougi");
@@ -596,7 +618,8 @@ export class GameScene extends Phaser.Scene {
   /** Captures a snapshot, seeds the local prediction sim, and reconciles the local ninja against the server. */
   private onServerState(): void {
     const state = this.state();
-    if (this.lastPhase === "finished" && state.phase === "playing") {
+    // A rematch now restarts through the countdown, so that — not "playing" — is the transition to reset on.
+    if (this.lastPhase === "finished" && state.phase === "countdown") {
       // Rematch restarted the match under our feet — throw away prediction state built for the last one.
       this.localSim = null;
       this.snapshots = [];
@@ -640,7 +663,34 @@ export class GameScene extends Phaser.Scene {
     this.syncLocalObstacles();
     this.reconcileLocal();
     this.renderHud();
+    this.renderCountdown();
     this.renderMatchEnd();
+  }
+
+  /**
+   * The pre-match freeze, rendered from `countdownTicks` alone: "3/2/1" while the numbers last, then "FIGHT!"
+   * for the final beat. The legend rides along because this is the one moment the player is looking at the
+   * arena with nothing to do — the swing in particular has no other place it gets taught.
+   */
+  private renderCountdown(): void {
+    const state = this.state();
+    const counting = state.phase === "countdown";
+    this.countdownEl.hidden = !counting;
+    if (!counting) {
+      this.lastCountdownText = "";
+      return;
+    }
+
+    const numberTicks = state.countdownTicks - COUNTDOWN_FIGHT_TICKS;
+    const text = numberTicks > 0 ? String(Math.ceil(numberTicks / SIM_TICK_RATE_HZ)) : "Fight!";
+    if (text === this.lastCountdownText) return;
+    this.lastCountdownText = text;
+    this.countdownNumberEl.textContent = text;
+    // Re-adding the class restarts the pop; without the reflow between, the browser coalesces it into no-op.
+    this.countdownNumberEl.classList.remove("beat");
+    void this.countdownNumberEl.offsetWidth;
+    this.countdownNumberEl.classList.add("beat");
+    playSfx(this, "countdown", 0.5, false);
   }
 
   /** Timer, alive count, HP/TP/SP gauges, and the weapon cooldown frame — plain DOM, matching the lobby overlay's approach. */
@@ -782,6 +832,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    if (!this.acceptingInput()) return;
     const ninja = this.localNinja();
     if (!ninja || !ninja.active) return;
 
@@ -809,6 +860,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (!this.acceptingInput()) return;
     if (this.awayTapArmed) {
       this.awayTapArmed = false;
       const ninja = this.localNinja();

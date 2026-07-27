@@ -3,6 +3,7 @@ import { Schema, ArraySchema, MapSchema, type } from "@colyseus/schema";
 import {
   ARENAS,
   CHARACTERS,
+  COUNTDOWN_TICKS,
   DEFAULT_ARENA_ID,
   DEFAULT_CHARACTER_ID,
   DEFAULT_WEAPON_ID,
@@ -36,7 +37,7 @@ const MAX_STEPS_PER_TICK = 5;
  * so `matchMaker.query` can serve it; bots are excluded from `players` since a bot-filled room isn't full.
  */
 export interface RoomMetadata {
-  phase: "lobby" | "playing" | "finished";
+  phase: "lobby" | "countdown" | "playing" | "finished";
   hostName: string;
   players: number;
   maxPlayers: number;
@@ -124,7 +125,9 @@ export class ObstacleSchema extends Schema {
 }
 
 export class LobbyState extends Schema {
-  @type("string") phase: "lobby" | "playing" | "finished" = "lobby";
+  @type("string") phase: "lobby" | "countdown" | "playing" | "finished" = "lobby";
+  /** Ticks left in the pre-match freeze; the client renders "3/2/1/FIGHT!" from this alone. */
+  @type("number") countdownTicks = 0;
   /** Host's map choice; clients resolve the geometry from the shared registry rather than syncing it. */
   @type("string") mapId = DEFAULT_ARENA_ID;
   @type("number") tick = 0;
@@ -178,7 +181,7 @@ export class ArenaRoom extends Room<LobbyState> {
     player.nickname = sanitizeNickname(options.nickname);
     player.characterId = sanitizeCharacterId(options.characterId);
     player.weaponId = sanitizeWeaponId(options.weaponId);
-    player.spectating = this.state.phase === "playing" || this.activePlayerCount() >= MAX_ACTIVE_PLAYERS;
+    player.spectating = this.matchRunning() || this.activePlayerCount() >= MAX_ACTIVE_PLAYERS;
     player.isHost = !this.hasHost();
 
     this.joinOrder.push(client.sessionId);
@@ -225,8 +228,13 @@ export class ArenaRoom extends Room<LobbyState> {
 
   private handleStart(client: Client): void {
     const player = this.state.players.get(client.sessionId);
-    if (!player?.isHost || this.state.phase === "playing") return;
+    if (!player?.isHost || this.matchRunning()) return;
     this.startMatch();
+  }
+
+  /** A match occupies both phases: the countdown is a frozen part of it, not a second lobby. */
+  private matchRunning(): boolean {
+    return this.state.phase === "countdown" || this.state.phase === "playing";
   }
 
   /**
@@ -247,7 +255,7 @@ export class ArenaRoom extends Room<LobbyState> {
   }
 
   private handleLaunch(client: Client, message: LaunchMessage): void {
-    if (this.state.phase !== "playing") return;
+    if (!this.matchRunning()) return;
     const dirX = Number(message?.dirX);
     const dirY = Number(message?.dirY);
     const power = Number(message?.power);
@@ -262,13 +270,13 @@ export class ArenaRoom extends Room<LobbyState> {
 
   /** The sim ignores this unless the meter is actually full, so no server-side SP check is needed here. */
   private handleOugi(client: Client): void {
-    if (this.state.phase !== "playing") return;
+    if (!this.matchRunning()) return;
     this.commandQueue.push({ type: "ougi", ninjaId: client.sessionId });
   }
 
   /** A zero direction (a tap with no drag) swings wherever the ninja already faces — the sim resolves that. */
   private handleAttack(client: Client, message: AttackMessage): void {
-    if (this.state.phase !== "playing") return;
+    if (!this.matchRunning()) return;
     const dirX = Number(message?.dirX) || 0;
     const dirY = Number(message?.dirY) || 0;
     this.commandQueue.push({ type: "attack", ninjaId: client.sessionId, dirX, dirY });
@@ -276,7 +284,7 @@ export class ArenaRoom extends Room<LobbyState> {
 
   /** Continuous hold state, not a queued command — TP accrues tick over tick for as long as this stays true. */
   private handleCharge(client: Client, message: ChargeMessage): void {
-    if (!this.sim || this.state.phase !== "playing") return;
+    if (!this.sim || !this.matchRunning()) return;
     const ninja = this.sim.ninjas.find((n) => n.id === client.sessionId);
     if (!ninja || !ninja.active) return;
     ninja.charging = message?.active === true;
@@ -341,7 +349,9 @@ export class ArenaRoom extends Room<LobbyState> {
       this.state.obstacles.push(schema);
     }
 
-    this.state.phase = "playing";
+    // The world is seeded and synced before the phase flips, so clients build the scene on a frozen arena.
+    this.state.phase = "countdown";
+    this.state.countdownTicks = COUNTDOWN_TICKS;
     this.state.suddenDeath = false;
     this.state.winnerId = "";
     this.state.matchTimeRemaining = Math.ceil(this.matchTicksRemaining / SIM_TICK_RATE_HZ);
@@ -350,7 +360,14 @@ export class ArenaRoom extends Room<LobbyState> {
   }
 
   private tick(deltaMs: number): void {
-    if (!this.sim || this.state.phase !== "playing") return;
+    if (!this.sim || !this.matchRunning()) return;
+
+    // The countdown is a real freeze: no step, no bot decisions, and any command received meanwhile stays
+    // queued for the first live step — an overlay over a running sim would let bots dash at a player reading "3".
+    if (this.state.phase === "countdown") {
+      this.tickCountdown(deltaMs);
+      return;
+    }
 
     this.runBotAI();
 
@@ -398,6 +415,26 @@ export class ArenaRoom extends Room<LobbyState> {
       if (this.leaderIds().length > 1) this.state.suddenDeath = true;
       else this.endMatch();
     }
+  }
+
+  /**
+   * Counts the pre-match freeze down on the same fixed timestep the sim uses, so "3/2/1" runs at wall-clock
+   * speed. The accumulator is reset at the handover so the first live tick starts from zero rather than
+   * spending a backlog of held-back steps the instant the match begins.
+   */
+  private tickCountdown(deltaMs: number): void {
+    this.accumulatorMs += deltaMs;
+    let steps = 0;
+    while (this.accumulatorMs >= SIM_DT_MS && steps < MAX_STEPS_PER_TICK) {
+      this.accumulatorMs -= SIM_DT_MS;
+      steps++;
+    }
+    this.state.countdownTicks = Math.max(0, this.state.countdownTicks - steps);
+    if (this.state.countdownTicks > 0) return;
+
+    this.accumulatorMs = 0;
+    this.state.phase = "playing";
+    this.publishMetadata();
   }
 
   /** Regulation time is up (or sudden death just resolved) with a clear winner — freeze the match. */

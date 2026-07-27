@@ -83,6 +83,12 @@ export const RESPAWN_HP_FRACTION = 0.5;
 export const MATCH_DURATION_SECONDS = 120;
 export const MATCH_DURATION_TICKS = MATCH_DURATION_SECONDS * SIM_TICK_RATE_HZ;
 
+/** Pre-match freeze: the arena is visible but the sim is held, so nobody dashes at a player still reading "3". */
+export const COUNTDOWN_SECONDS = 3;
+/** How long "FIGHT!" holds after the last number, before the sim actually starts. */
+export const COUNTDOWN_FIGHT_TICKS = Math.round(0.6 * SIM_TICK_RATE_HZ);
+export const COUNTDOWN_TICKS = COUNTDOWN_SECONDS * SIM_TICK_RATE_HZ + COUNTDOWN_FIGHT_TICKS;
+
 /** Bounciness of ninja-vs-ninja collisions. Walls and obstacles hard-stop a dash instead of bouncing it. */
 export const NINJA_RESTITUTION = 0.55;
 

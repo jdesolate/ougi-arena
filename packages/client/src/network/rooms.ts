@@ -5,7 +5,7 @@ export interface RoomListing {
   roomId: string;
   clients: number;
   maxClients: number;
-  phase: "lobby" | "playing" | "finished";
+  phase: "lobby" | "countdown" | "playing" | "finished";
   hostName: string;
   players: number;
   maxPlayers: number;

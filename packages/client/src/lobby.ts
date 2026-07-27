@@ -253,7 +253,8 @@ export function initLobby(onStart: (room: Room) => void): void {
     renderMap(state.mapId, me?.isHost ?? false);
     renderMatchConfig(state.mapId, players);
 
-    if (state.phase === "playing" && !matchStarted) {
+    // Hand off on "countdown", not "playing": the arena has to be on screen and frozen while it counts down.
+    if ((state.phase === "countdown" || state.phase === "playing") && !matchStarted) {
       matchStarted = true;
       lobbyEl.hidden = true;
       onStart(room);

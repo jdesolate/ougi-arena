@@ -3,17 +3,19 @@ import {
   CELL,
   CRATE_HP,
   FAN_DAMAGE,
+  FAN_KNOCKBACK_CELLS,
   KUNAI_COOLDOWN_TICKS,
   KUNAI_DAMAGE,
   LONGSWORD_DAMAGE,
   MAX_HP,
   MAX_TP,
+  NINJA_RADIUS,
   RESPAWN_INVULN_TICKS,
   SP_PER_DAMAGE,
 } from "./constants.js";
 import { createSimState, step } from "./sim.js";
 import { OPEN_ARENA } from "./test-arena.js";
-import type { NinjaState, SimCommand, SimState } from "./types.js";
+import type { NinjaState, SimCommand, SimEvent, SimState } from "./types.js";
 import { DEFAULT_WEAPON_ID, WEAPONS, attackCells, weaponFor } from "./weapon.js";
 
 const KUNAI = "kunai";
@@ -53,6 +55,13 @@ function swing(id: string, dirX: number, dirY: number): SimCommand[] {
   return [{ type: "attack", ninjaId: id, dirX, dirY }];
 }
 
+/** Runs the swing, then enough quiet ticks for any push it started to finish travelling. */
+function swingAndSettle(state: SimState, id: string, dirX: number, dirY: number): SimEvent[] {
+  const events = step(state, swing(id, dirX, dirY));
+  for (let tick = 0; tick < 20; tick++) events.push(...step(state));
+  return events;
+}
+
 describe("weapon table", () => {
   it("gives every weapon a distinct id and a nonempty pattern", () => {
     expect(new Set(WEAPONS.map((w) => w.id)).size).toBe(WEAPONS.length);
@@ -60,6 +69,9 @@ describe("weapon table", () => {
       expect(weapon.cells.length).toBeGreaterThan(0);
       expect(weapon.damage).toBeGreaterThan(0);
       expect(weapon.cooldownTicks).toBeGreaterThan(0);
+      // A push is measured in whole cells, so a fractional one would land a victim between tiles.
+      expect(weapon.knockbackCells).toBe(Math.trunc(weapon.knockbackCells));
+      expect(weapon.knockbackCells).toBeGreaterThanOrEqual(0);
     }
   });
 
@@ -390,6 +402,148 @@ describe("damage rules", () => {
   });
 });
 
+describe("knockback", () => {
+  it("pushes a fan victim exactly one cell along the swing, landing on the cell centre", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    expect(b.x).toBeCloseTo(240 + CELL * (1 + FAN_KNOCKBACK_CELLS), 6);
+    expect(b.y).toBe(400);
+    expect(b).toMatchObject({ dashBudget: 0, dashLethal: false, vx: 0, vy: 0 });
+  });
+
+  it("reports the push so a client can animate the slide", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 400, 240);
+    place(b, 400, 240 + CELL);
+
+    const events = step(state, swing("a", 0, 1));
+
+    expect(events).toContainEqual({
+      type: "ninjaKnockback",
+      targetId: "b",
+      sourceId: "a",
+      dirX: 0,
+      dirY: 1,
+      distance: CELL,
+    });
+  });
+
+  it("sweeps the fan's diagonal victims along the swing, not outward from the attacker", () => {
+    const state = arena([FAN, KUNAI, KUNAI, KUNAI]);
+    const [a, b, c, d] = state.ninjas as [NinjaState, NinjaState, NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+    place(c, 240 + CELL, 400 - CELL);
+    place(d, 240 + CELL, 400 + CELL);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    for (const victim of [b, c, d]) expect(victim.x).toBeCloseTo(240 + CELL * 2, 6);
+    expect(c.y).toBe(400 - CELL);
+    expect(d.y).toBe(400 + CELL);
+  });
+
+  it("realigns an off-grid victim rather than carrying its offset along", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 240, 400);
+    // Parked 31 units into the cell in front, as a pillar hard-stop would leave it.
+    place(b, 240 + CELL + 31, 400);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    expect(b.x).toBeCloseTo(240 + CELL * 2, 6);
+  });
+
+  it("hard-stops against a wall instead of pushing into it", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    // Rightmost column: the cell the push aims at is inside the border.
+    place(a, 1120, 400);
+    place(b, 1200, 400);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    expect(b.x).toBeCloseTo(1240 - NINJA_RADIUS, 0);
+    expect(b).toMatchObject({ dashBudget: 0, vx: 0, vy: 0 });
+  });
+
+  it("hard-stops against cover, which a hard enough shove also breaks", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, CRATE_X - CELL * 2, CRATE_Y);
+    place(b, CRATE_X - CELL, CRATE_Y);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    // The swing never reached the crate (two cells out); the victim shoved into it did.
+    expect(b.x).toBeCloseTo(CRATE_X - CELL / 2 - NINJA_RADIUS, 0);
+    expect(b.dashBudget).toBe(0);
+    expect(state.obstacles[0]!.alive).toBe(false);
+  });
+
+  it("does not push at all for a weapon with no knockback", () => {
+    for (const weaponId of [KUNAI, LONGSWORD]) {
+      const state = arena([weaponId, KUNAI]);
+      const [a, b] = state.ninjas as [NinjaState, NinjaState];
+      place(a, 240, 400);
+      place(b, 240 + CELL, 400);
+
+      const events = swingAndSettle(state, "a", 1, 0);
+
+      expect(b.x).toBe(240 + CELL);
+      expect(b.dashBudget).toBe(0);
+      expect(events.filter((e) => e.type === "ninjaKnockback")).toHaveLength(0);
+    }
+  });
+
+  it("cannot push an invulnerable target, since the swing never touches it", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+    b.invulnerableTicks = RESPAWN_INVULN_TICKS;
+
+    const events = swingAndSettle(state, "a", 1, 0);
+
+    expect(b.x).toBe(240 + CELL);
+    expect(events.filter((e) => e.type === "ninjaKnockback")).toHaveLength(0);
+  });
+
+  it("leaves a victim the swing KO'd where it fell, for the respawn to move", () => {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+    b.hp = FAN_DAMAGE;
+
+    const events = step(state, swing("a", 1, 0));
+
+    expect(b.active).toBe(false);
+    expect(b.x).toBe(240 + CELL);
+    expect(events.filter((e) => e.type === "ninjaKnockback")).toHaveLength(0);
+  });
+
+  it("never makes a pushed ninja lethal — being shoved must not shatter whoever you land on", () => {
+    const state = arena([FAN, KUNAI, KUNAI]);
+    const [a, b, c] = state.ninjas as [NinjaState, NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+    place(c, 240 + CELL * 2, 400);
+
+    swingAndSettle(state, "a", 1, 0);
+
+    expect(c.active).toBe(true);
+    expect(c.hp).toBe(MAX_HP);
+  });
+});
+
 describe("determinism", () => {
   function runScript(seed: number, ticks: number): SimState {
     const state = createSimState(["a", "b", "c", "d"], OPEN_ARENA, [], [KUNAI, FAN, LONGSWORD, FAN]);
@@ -427,5 +581,29 @@ describe("determinism", () => {
 
     expect(a.tick).toBe(900);
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  /** The random script above flails too widely to reliably land a fan hit, so the push gets its own scripted run. */
+  function runPushScript(): { state: SimState; pushes: number } {
+    const state = arena([FAN, KUNAI]);
+    const [a, b] = state.ninjas as [NinjaState, NinjaState];
+    place(a, 240, 400);
+    place(b, 240 + CELL, 400);
+
+    let pushes = 0;
+    for (let tick = 0; tick < 300; tick++) {
+      const commands = tick % 15 === 0 ? swing("a", 1, 0) : [];
+      pushes += step(state, commands).filter((e) => e.type === "ninjaKnockback").length;
+    }
+    return { state, pushes };
+  }
+
+  it("pushes reproducibly — repeated shoves across the arena land in the same place twice", () => {
+    const a = runPushScript();
+    const b = runPushScript();
+
+    expect(a.pushes).toBeGreaterThan(0);
+    expect(b.pushes).toBe(a.pushes);
+    expect(JSON.stringify(a.state)).toBe(JSON.stringify(b.state));
   });
 });

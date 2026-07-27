@@ -34,3 +34,14 @@ export function snapDashDistance(from: number, dir: number, maxDistance: number,
 
   return distance > 0 ? distance : 0;
 }
+
+/**
+ * Distance along one axis from `from` to the centre of the cell `cells` away from the one it stands in. Unlike
+ * `snapDashDistance` this never clamps down — a knockback isn't paid for out of TP, so the push always crosses
+ * whole cells — and because the *containing* cell is the reference, an off-grid victim (hard-stopped against a
+ * pillar, or already flung) lands back on a centre.
+ */
+export function cellPushDistance(from: number, dir: number, cells: number, origin: number): number {
+  if (dir === 0 || cells <= 0) return 0;
+  return (snapToCellCentre(from, origin) + dir * cells * CELL - from) * dir;
+}

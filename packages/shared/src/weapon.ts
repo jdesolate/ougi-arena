@@ -2,15 +2,17 @@ import {
   CELL,
   FAN_COOLDOWN_TICKS,
   FAN_DAMAGE,
+  FAN_KNOCKBACK_CELLS,
   KUNAI_COOLDOWN_TICKS,
   KUNAI_DAMAGE,
   LONGSWORD_COOLDOWN_TICKS,
   LONGSWORD_DAMAGE,
+  WEAPON_KNOCKBACK_SPEED,
 } from "./constants.js";
 import { damageNinja, isVulnerable } from "./damage.js";
-import { snapToCellCentre } from "./grid.js";
+import { cellPushDistance, snapToCellCentre } from "./grid.js";
 import { aabbContains, closestPointOnAabb, lengthOf, snapToCardinal } from "./math.js";
-import type { Aabb, NinjaState, SimEvent, SimState, Vec2 } from "./types.js";
+import type { Aabb, ArenaGrid, NinjaState, SimEvent, SimState, Vec2 } from "./types.js";
 
 /**
  * One cell of a weapon's pattern, relative to the swing direction: `forward` cells ahead of the attacker and
@@ -38,6 +40,8 @@ export interface WeaponDefinition {
   damage: number;
   /** Attack speed, as the rate limit it really is. An attack arriving during it is dropped, not buffered. */
   cooldownTicks: number;
+  /** Whole cells a hit ninja is pushed along the swing direction; 0 for a weapon that only chips. */
+  knockbackCells: number;
 }
 
 const KUNAI: WeaponDefinition = {
@@ -47,12 +51,13 @@ const KUNAI: WeaponDefinition = {
   cells: [{ forward: 1, lateral: 0 }],
   damage: KUNAI_DAMAGE,
   cooldownTicks: KUNAI_COOLDOWN_TICKS,
+  knockbackCells: 0,
 };
 
 const FAN: WeaponDefinition = {
   id: "fan",
   name: "Paper Fan",
-  description: "Three cells across your front. Covers every angle someone can approach from.",
+  description: "Three cells across your front, and it shoves them a tile back. Controls the space around you.",
   cells: [
     { forward: 1, lateral: 0 },
     { forward: 1, lateral: -1 },
@@ -60,6 +65,7 @@ const FAN: WeaponDefinition = {
   ],
   damage: FAN_DAMAGE,
   cooldownTicks: FAN_COOLDOWN_TICKS,
+  knockbackCells: FAN_KNOCKBACK_CELLS,
 };
 
 const LONGSWORD: WeaponDefinition = {
@@ -72,6 +78,7 @@ const LONGSWORD: WeaponDefinition = {
   ],
   damage: LONGSWORD_DAMAGE,
   cooldownTicks: LONGSWORD_COOLDOWN_TICKS,
+  knockbackCells: 0,
 };
 
 export const WEAPONS: readonly WeaponDefinition[] = [KUNAI, FAN, LONGSWORD];
@@ -131,6 +138,55 @@ export function attackCells(
   }
 
   return boxes;
+}
+
+/**
+ * How far a knockback carries `target`, in world units: to the centre of the cell `knockbackCells` away along the
+ * swing axis. Exported so the client can preview or animate the exact landing the sim will resolve.
+ */
+export function knockbackDistanceFor(
+  target: NinjaState,
+  dir: Vec2,
+  weapon: WeaponDefinition,
+  grid: ArenaGrid,
+): number {
+  if (dir.x !== 0) return cellPushDistance(target.x, dir.x, weapon.knockbackCells, grid.originX);
+  if (dir.y !== 0) return cellPushDistance(target.y, dir.y, weapon.knockbackCells, grid.originY);
+  return 0;
+}
+
+/**
+ * Pushes a hit ninja along the swing on the same `dashBudget` Shockwave's fling uses — so walls, pillars and
+ * destructibles hard-stop it for free, and `dashLethal` stays false because being shoved must never shatter
+ * whoever you land on. Every cell of a pattern pushes along `dir`, not outward from the attacker: a fan's
+ * diagonal victims are swept the same way as the one in front, which is what makes the sweep read as one motion.
+ */
+function applyKnockback(
+  state: SimState,
+  target: NinjaState,
+  source: NinjaState,
+  dir: Vec2,
+  weapon: WeaponDefinition,
+  events: SimEvent[],
+): void {
+  // A hit that KO'd its target has already zeroed its budget; pushing a corpse would just fight the respawn.
+  if (weapon.knockbackCells <= 0 || !target.active) return;
+
+  const distance = knockbackDistanceFor(target, dir, weapon, state.map.grid);
+  if (distance <= 0) return;
+
+  target.vx = dir.x * WEAPON_KNOCKBACK_SPEED;
+  target.vy = dir.y * WEAPON_KNOCKBACK_SPEED;
+  target.dashBudget = distance;
+  target.dashLethal = false;
+  events.push({
+    type: "ninjaKnockback",
+    targetId: target.id,
+    sourceId: source.id,
+    dirX: dir.x,
+    dirY: dir.y,
+    distance,
+  });
 }
 
 /**
@@ -196,6 +252,7 @@ export function attack(
 
       alreadyHit.add(other);
       damageNinja(other, weapon.damage, ninja, events);
+      applyKnockback(state, other, ninja, dir, weapon, events);
     }
   }
 

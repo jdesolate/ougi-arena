@@ -70,6 +70,14 @@ export const FAN_COOLDOWN_TICKS = 0.5 * SIM_TICK_RATE_HZ;
 export const LONGSWORD_DAMAGE = 20;
 export const LONGSWORD_COOLDOWN_TICKS = 0.9 * SIM_TICK_RATE_HZ;
 
+/**
+ * The fan is the only weapon that *moves* its victim: one cell along the swing, which is what turns its wide
+ * coverage into zone control rather than just three hitboxes. Kunai and longsword push nobody.
+ */
+export const FAN_KNOCKBACK_CELLS = 1;
+/** Matches Shockwave's fling speed, so being pushed reads the same whatever pushed you. */
+export const WEAPON_KNOCKBACK_SPEED = SHOCKWAVE_KNOCKBACK_SPEED;
+
 /** KO'd ninjas sit out this long before respawning, then are invulnerable for a further window. */
 export const RESPAWN_DELAY_SECONDS = 3;
 export const RESPAWN_DELAY_TICKS = RESPAWN_DELAY_SECONDS * SIM_TICK_RATE_HZ;

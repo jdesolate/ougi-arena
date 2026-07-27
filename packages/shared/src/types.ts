@@ -128,6 +128,18 @@ export type SimEvent =
   | { type: "ougiFired"; ninjaId: string; ougiId: string }
   | { type: "ninjaAttacked"; ninjaId: string; weaponId: string; dirX: number; dirY: number }
   | { type: "ninjaDamaged"; targetId: string; sourceId: string; amount: number }
+  /**
+   * A weapon hit that also pushed its victim. Separate from `ninjaDamaged` so `damage.ts` stays free of weapon
+   * concerns; both fire in the same tick, and `distance` is what the push was *given*, before cover cuts it short.
+   */
+  | {
+      type: "ninjaKnockback";
+      targetId: string;
+      sourceId: string;
+      dirX: number;
+      dirY: number;
+      distance: number;
+    }
   | { type: "ninjaHit"; aId: string; bId: string; impact: number }
   | { type: "wallHit"; ninjaId: string; impact: number }
   /** `impact` is the closing speed of the dash that caused it, and 0 for a weapon hit — a swing has no speed. */

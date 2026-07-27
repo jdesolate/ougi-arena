@@ -244,3 +244,11 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - Juice: Quick Play breathes a slow gold glow; picking a card pops its portrait/icon (animation re-runs per selection); panels get a top sheen; `.btn-quiet` gains hover fill + padding; room-list Join buttons were unstyled defaults and now use `.btn-quiet`.
 - Depth: body background is a lit radial vignette instead of a flat fill.
 - Accessibility: global gold `:focus-visible` ring, `prefers-reduced-motion` kills all animation/transitions; verified 375x812 no overflow, no console errors; typecheck + lint green.
+
+## Logo integration — brand pass (2026-07-27)
+
+- User supplied a circular badge logo (cartoon ninja, orange/blue, wordmark baked in). Integrated as the landing title: `#brand` h1 wraps `<img id="brand-logo" src="/logo.png">` with a hidden text wordmark that takes over if the file is missing (checked both via an `error` listener and a `complete && naturalWidth === 0` probe, since the module is deferred and the failure usually predates the listener). Also set as the favicon.
+- Palette bridge so the badge doesn't look pasted on: new `--ember`/`--ember-deep`/`--logo-blue` tokens sampled from the logo; body vignette gained a warm ember bloom above the cool blue one; the arcade button's underside and the Quick Play breathing glow moved from gold to ember (which also killed a hardcoded `#9c7a2c` straggler).
+- Logo sized `min(300px, 62vw)`, dropped to `min(170px, 46vw)` under 520px — at full size on a phone it pushed Quick Play and the ninja picks off the first screen. Slow float animation, ember drop-shadow; tagline demoted since the logo carries its own slogan.
+- **`packages/client/public/logo.png` is not in the repo yet** — the fallback wordmark renders until it is. Verified both states in the preview (fallback and a temporary same-aspect placeholder, since deleted); no console errors, no overflow at 375px, typecheck + lint green.
+- **Open issue:** `docs/asset-credits.md` has a placeholder row for the logo — its provenance must be recorded before ship, since `docs/m8-plan.md` commits the project to original/CC0 art only.

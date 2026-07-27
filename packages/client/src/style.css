@@ -32,6 +32,11 @@
   --chakra-blue: #4fc3f7;
   --stamina-green: #8bc34a;
 
+  /* Sampled from the logo badge so the page reads as the same brand, not a backdrop it sits on. */
+  --ember: #f97316;
+  --ember-deep: #c2410c;
+  --logo-blue: #2f6fd0;
+
   /* Lacquered wood frame family (DOM-only, no canvas counterpart). */
   --wood: #4a3226;
   --wood-dark: #2e1f18;
@@ -80,8 +85,9 @@
 
 body {
   margin: 0;
-  /* A lit vignette instead of a flat fill: the arena glow the panels sit inside. */
+  /* Echoes the logo badge's cool-to-warm split: blue arena light up top, ember heat bleeding in behind it. */
   background:
+    radial-gradient(ellipse 60% 40% at 50% 2%, rgba(249, 115, 22, 0.16) 0%, transparent 70%),
     radial-gradient(ellipse 120% 70% at 50% -10%, #232c52 0%, transparent 60%),
     var(--bg);
   min-height: 100vh;
@@ -139,7 +145,8 @@ body {
   color: var(--ink-850);
   font-weight: bold;
   border: none;
-  border-bottom: 3px solid #9c7a2c;
+  /* Ember underside rather than a darker gold: carries the logo's heat into the primary action. */
+  border-bottom: 3px solid var(--ember-deep);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
@@ -237,7 +244,9 @@ body {
   flex-direction: column;
   gap: 12px;
 }
-#lobby h1 {
+/* The logo badge is the title; it gets its own ember halo so it doesn't float on flat navy. */
+#brand {
+  margin: 0;
   text-align: center;
   font-family: var(--font-display);
   font-size: 1.9rem;
@@ -246,12 +255,31 @@ body {
   text-shadow:
     0 0 12px rgba(255, 209, 102, 0.4),
     0 3px 0 var(--wood-dark);
-  margin: 8px 0 0;
 }
+#brand-logo {
+  display: block;
+  width: min(300px, 62vw);
+  height: auto;
+  margin: 0 auto;
+  filter: drop-shadow(0 6px 20px rgba(249, 115, 22, 0.35));
+  animation: brand-float 5s ease-in-out infinite;
+}
+/* A slow hover keeps the landing page alive without competing with the Quick Play pulse. */
+@keyframes brand-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+/* The logo already shouts its slogan, so this line stays quiet and just explains the game. */
 #tagline {
   text-align: center;
   color: var(--text-dim);
-  margin: 0 0 8px;
+  font-size: 0.9rem;
+  margin: -4px 0 8px;
 }
 /* Landing: picks on the left, play actions on the right; each column its own framed panel. */
 #lobby-form {
@@ -326,10 +354,10 @@ body {
 @keyframes cta-breathe {
   0%,
   100% {
-    box-shadow: 0 0 6px rgba(255, 209, 102, 0.25);
+    box-shadow: 0 0 6px rgba(249, 115, 22, 0.3);
   }
   50% {
-    box-shadow: 0 0 18px rgba(255, 209, 102, 0.55);
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.6);
   }
 }
 /* Section labels: small gold caps with a rule running to the edge, arcade-menu style. */
@@ -526,6 +554,10 @@ body {
   #lobby h1 {
     font-size: 1.5rem;
     margin: 0;
+  }
+  /* A full-size badge would push Quick Play off the first screen on a phone. */
+  #brand-logo {
+    width: min(170px, 46vw);
   }
   #lobby button {
     min-height: 44px;

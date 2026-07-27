@@ -91,6 +91,16 @@ export function initLobby(onStart: (room: Room) => void): void {
   const roomListEmptyEl = el<HTMLParagraphElement>("room-list-empty");
   const wakingNoteEl = el<HTMLParagraphElement>("waking-note");
 
+  // Until the logo file is dropped in, fall back to the wordmark rather than a broken image.
+  const brandLogo = el<HTMLImageElement>("brand-logo");
+  function useBrandFallback(): void {
+    brandLogo.hidden = true;
+    el<HTMLSpanElement>("brand-text").hidden = false;
+  }
+  brandLogo.addEventListener("error", useBrandFallback);
+  // This module is deferred, so a missing logo has usually already failed by the time the listener attaches.
+  if (brandLogo.complete && brandLogo.naturalWidth === 0) useBrandFallback();
+
   // Guards against `onStart` re-firing: once playing, state syncs ~30x/sec and each change re-renders.
   let matchStarted = false;
   let serverWaking = false;

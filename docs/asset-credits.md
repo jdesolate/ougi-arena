@@ -1,7 +1,8 @@
 # Asset credits
 
-All bundled art and audio is **CC0 1.0 (public domain)** — free for personal, educational and commercial use,
-with no attribution required. Credit is given here anyway because the packs are worth pointing at.
+Everything from an asset pack is **CC0 1.0 (public domain)** — free for personal, educational and commercial use,
+with no attribution required. Credit is given here anyway because the packs are worth pointing at. Project-original
+art is listed separately below.
 
 Original game names, characters and Ougi designs are ours; nothing here is from Nindou.
 
@@ -10,6 +11,10 @@ Original game names, characters and Ougi designs are ours; nothing here is from 
 | File | Source |
 |---|---|
 | `packages/client/public/assets/sprites/ninja.png` | [Roguelike Characters](https://kenney.nl/assets/roguelike-characters) by [Kenney](https://kenney.nl) — one 16x16 frame from the pack's spritesheet, recolored per character at runtime |
+| `packages/client/public/logo.png` | Project brand logo, supplied by the author — **provenance to be recorded here before ship** (`docs/m8-plan.md` commits the project to original/CC0 art only) |
+
+Weapon icons, map thumbnails, character portraits and every arena texture are drawn in code at runtime
+(`src/ui/weapon-icon.ts`, `src/ui/map-thumb.ts`, `src/ui/portrait.ts`, `src/scenes/GameScene.ts`) — no files to credit.
 
 ## Audio
 

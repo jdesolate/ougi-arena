@@ -1,2 +1,0 @@
-# Room links are client-side routes, not files — Pages must serve the app shell for them.
-/r/*  /index.html  200

@@ -60,7 +60,7 @@ Two things bite here:
 <details>
 <summary>Classic Pages instead</summary>
 
-If you'd rather use Pages: build command and output directory as above (`packages/client/dist`), no deploy command, and [`packages/client/public/_redirects`](../packages/client/public/_redirects) handles the room-link routing. Or deploy from a Workers build with `npx wrangler pages deploy packages/client/dist --project-name=ougi-arena`, which sidesteps the workspace-detection problem without a config file.
+If you'd rather use Pages: build command and output directory as above (`packages/client/dist`), no deploy command. Pages has no `not_found_handling`, so room-link routing needs a `packages/client/public/_redirects` file containing `/r/*  /index.html  200`. **Don't add that file while deploying to Workers** — Workers static assets normalize `/index.html` to `/`, so it reads that rule as an infinite redirect loop and rejects the whole deploy. It's omitted from the repo for that reason.
 
 </details>
 

@@ -7,6 +7,8 @@ const SPARK_TEXTURE_KEY = "spark";
 const SHARD_TEXTURE_KEY = "shard";
 /** The cut a landed hit leaves behind: a lens laid across the swing, brightest at its middle. */
 const SLASH_TEXTURE_KEY = "slash-mark";
+/** One lane of an Ougi beam, stretched to whatever reach the sim measured for it. */
+const BEAM_TEXTURE_KEY = "ougi-beam";
 
 export const DEPTH_WORLD = 0;
 export const DEPTH_PARTICLES = 5;
@@ -106,6 +108,13 @@ export class MatchEffects {
       g.fillStyle(0xffffff, 1);
       g.fillTriangle(0, 8, 28, 0, 56, 8);
       g.fillTriangle(0, 8, 28, 16, 56, 8);
+    });
+    // Bright core with a taper at the far end, so a beam reads as thrown outward rather than as a placed bar.
+    this.makeTexture(BEAM_TEXTURE_KEY, 64, 24, (g) => {
+      g.fillStyle(0xffffff, 0.55);
+      g.fillTriangle(0, 1, 0, 23, 64, 12);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(0, 9, 58, 6);
     });
     this.createSwingTextures();
 
@@ -233,6 +242,55 @@ export class MatchEffects {
       scaleY: 0.5,
       alpha: { from: 1, to: 0 },
       duration: 190,
+      ease: "Quad.easeOut",
+      onComplete: () => image.destroy(),
+    });
+  }
+
+  /**
+   * An Ougi's blast front, expanding to exactly the radius the sim damages within — the whole point is that a
+   * player can see how far Shockwave reached and where they were standing in it.
+   *
+   * Drawn into a Graphics tweened through a proxy rather than scaled from a texture, because a scaled ring
+   * thickens as it grows and would overstate the rim; the line width has to stay put while the radius moves.
+   */
+  ring(x: number, y: number, maxRadius: number, color: number, durationMs = 340): void {
+    const g = this.scene.add.graphics().setDepth(DEPTH_SWING).setBlendMode(Phaser.BlendModes.ADD);
+    const front = { r: maxRadius * 0.18, a: 1 };
+
+    this.scene.tweens.add({
+      targets: front,
+      r: maxRadius,
+      a: 0,
+      duration: durationMs,
+      ease: "Cubic.easeOut",
+      onUpdate: () => {
+        g.clear();
+        g.lineStyle(7, color, front.a);
+        g.strokeCircle(x, y, front.r);
+        g.lineStyle(2, 0xffffff, front.a);
+        g.strokeCircle(x, y, front.r * 0.92);
+      },
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  /** One lane of a beam Ougi, drawn to the reach the sim measured so it stops on the cover that blocked it. */
+  beam(x: number, y: number, angleRad: number, length: number, color: number, durationMs = 280): void {
+    const image = this.scene.add
+      .image(x, y, BEAM_TEXTURE_KEY)
+      .setOrigin(0, 0.5)
+      .setDepth(DEPTH_SWING)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setTint(color)
+      .setRotation(angleRad)
+      .setScale(length / 64, 0.4);
+
+    this.scene.tweens.add({
+      targets: image,
+      scaleY: 1.15,
+      alpha: { from: 1, to: 0 },
+      duration: durationMs,
       ease: "Quad.easeOut",
       onComplete: () => image.destroy(),
     });

@@ -3,6 +3,7 @@ import type { Room } from "colyseus.js";
 import {
   CELL,
   COUNTDOWN_FIGHT_TICKS,
+  CROSS_SLASH_LANE_HALF_WIDTH,
   MAX_HP,
   MAX_SP,
   MAX_TP,
@@ -16,6 +17,7 @@ import {
   lengthOf,
   maxDashDistanceOf,
   ougiForCharacter,
+  SHOCKWAVE_RADIUS,
   snapToCardinal,
   snapToCellCentre,
   step,
@@ -77,6 +79,22 @@ const TAP_DRAG_THRESHOLD = 10;
 const WEAPON_SFX_VOLUME: Record<string, number> = { kunai: 0.35, fan: 0.45, longsword: 0.55 };
 /** World units a swing throws the attacker's drawing forward, scaled to how much the weapon commits its body. */
 const WEAPON_LUNGE: Record<string, number> = { kunai: 12, fan: 6, longsword: 16 };
+
+/**
+ * How long after an Ougi fires its damage still counts as that Ougi's. Ougi damage arrives as the same
+ * `ninjaDamaged` events a kunai poke does, so this window is the only way the client can tell them apart and
+ * give an ultimate the heavier reaction it earned.
+ */
+const OUGI_HIT_WINDOW_MS = 400;
+/** Long enough to read the name of the thing that just happened, short enough not to sit over the fight. */
+const OUGI_BANNER_MS = 1500;
+/** The four lanes Cross Slash cuts, in the sim's own order, so the visual is measured the same way it is. */
+const CARDINALS: readonly { x: number; y: number }[] = [
+  { x: 1, y: 0 },
+  { x: -1, y: 0 },
+  { x: 0, y: 1 },
+  { x: 0, y: -1 },
+];
 
 /** How long a struck destructible keeps shaking, and how far — enough to register the hit, short of comedy. */
 const OBSTACLE_WOBBLE_MS = 200;
@@ -216,6 +234,8 @@ export class GameScene extends Phaser.Scene {
   private readonly lastSwingDir = new Map<string, { x: number; y: number }>();
   /** Obstacle id → when it was last struck, so `drawWorld` can shake it without owning a tween per box. */
   private readonly obstacleWobble = new Map<number, number>();
+  /** Ninja id → when it last fired an Ougi, so the damage that follows reads as an ultimate rather than a poke. */
+  private readonly recentOugi = new Map<string, number>();
 
   private readonly hudEl = el<HTMLDivElement>("hud");
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
@@ -229,6 +249,12 @@ export class GameScene extends Phaser.Scene {
   private readonly hudOugiBtn = el<HTMLButtonElement>("hud-ougi-btn");
   /** Tracks which weapon's icon is currently painted onto the canvas, so it's only redrawn on change. */
   private lastDrawnWeaponId = "";
+  /** Names the ultimate that just went off — the visual shows you what happened, this says which one it was. */
+  private readonly ougiBannerEl = el<HTMLDivElement>("ougi-banner");
+  private readonly ougiBannerNameEl = el<HTMLDivElement>("ougi-banner-name");
+  private readonly ougiBannerCasterEl = el<HTMLDivElement>("ougi-banner-caster");
+  /** Only the newest banner may hide the element, so a second Ougi can't be cut short by the first one's timer. */
+  private ougiBannerSeq = 0;
   private readonly countdownEl = el<HTMLDivElement>("countdown");
   private readonly countdownNumberEl = el<HTMLDivElement>("countdown-number");
   /** Last text painted into the countdown, so each new beat retriggers the pop animation exactly once. */
@@ -497,6 +523,18 @@ export class GameScene extends Phaser.Scene {
    * dropped or duplicated event costs an effect, never desync.
    */
   private handleSimEvents(events: SimEvent[]): void {
+    // `fireOugi` pushes its damage and its cover-clearing *before* the `ougiFired` that caused them, so the
+    // Ougi has to be registered up front or every hit it lands would be reacted to as an ordinary one.
+    const clearedByOugi = new Map<string, number[]>();
+    for (const event of events) {
+      if (event.type === "ougiFired") this.ougiEffect(event.ninjaId, event.ougiId, clearedByOugi);
+      if (event.type === "obstacleDestroyed") {
+        const list = clearedByOugi.get(event.ninjaId);
+        if (list) list.push(event.obstacleId);
+        else clearedByOugi.set(event.ninjaId, [event.obstacleId]);
+      }
+    }
+
     for (const event of events) {
       switch (event.type) {
         case "launch": {
@@ -540,15 +578,22 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         case "ninjaDamaged": {
+          // An Ougi hit is the same event as a kunai poke, so it's given the weight instead by the reaction.
+          const byOugi = this.wasOugi(event.sourceId);
           const pos = this.renderPos(event.targetId);
           if (pos) {
-            this.effects.burst(pos.x, pos.y, 0xff5252, 10);
-            this.effects.slash(pos.x, pos.y, this.hitAngle(event.sourceId, pos.x, pos.y), COLOR_SWING_STEEL);
+            this.effects.burst(pos.x, pos.y, 0xff5252, byOugi ? 22 : 10);
+            this.effects.slash(
+              pos.x,
+              pos.y,
+              this.hitAngle(event.sourceId, pos.x, pos.y),
+              byOugi ? skinFor(this.characterIdOf(event.sourceId)).bodyColor : COLOR_SWING_STEEL,
+            );
           }
-          playSfx(this, "hit", 0.5);
+          playSfx(this, "hit", byOugi ? 0.7 : 0.5);
           if (this.involvesLocal(event.targetId, event.sourceId)) {
-            this.effects.hitPause(HIT_PAUSE_MS);
-            this.effects.shake(90, 0.005);
+            this.effects.hitPause(byOugi ? KO_HIT_PAUSE_MS : HIT_PAUSE_MS);
+            this.effects.shake(90, byOugi ? 0.01 : 0.005);
           }
           break;
         }
@@ -572,19 +617,106 @@ export class GameScene extends Phaser.Scene {
           if (event.targetId === this.localId) this.effects.flash(180, 120, 0, 0);
           break;
         }
-        case "ougiFired": {
-          const pos = this.renderPos(event.ninjaId);
-          const skin = skinFor(this.characterIdOf(event.ninjaId));
-          if (pos) {
-            this.effects.burst(pos.x, pos.y, skin.bodyColor, 40);
-            this.effects.puff(pos.x, pos.y, skin.bodyColor, 12);
-          }
-          playSfx(this, ougiSfxKey(this.characterIdOf(event.ninjaId)), 0.7, false);
-          this.effects.shake(300, this.involvesLocal(event.ninjaId) ? 0.014 : 0.008);
+        // Already played in the pre-scan above, before the damage it caused was reacted to.
+        case "ougiFired":
           break;
-        }
       }
     }
+  }
+
+  /**
+   * The Ougi itself, drawn as the shape the sim actually applied rather than a generic flash — an ultimate a
+   * player can't see is one they can't learn to stand clear of.
+   *
+   * Reach and radius come from the shared constants and the shared `laneDistance`, the same numbers the sim
+   * used, so the visual can't drift from the effect the way a hand-tuned size would.
+   */
+  private ougiEffect(ninjaId: string, ougiId: string, clearedByOugi: Map<string, number[]>): void {
+    this.recentOugi.set(ninjaId, performance.now());
+    const characterId = this.characterIdOf(ninjaId);
+    const skin = skinFor(characterId);
+    const pos = this.renderPos(ninjaId);
+
+    if (pos) {
+      this.effects.burst(pos.x, pos.y, skin.bodyColor, 40);
+      this.effects.puff(pos.x, pos.y, skin.bodyColor, 12);
+
+      switch (ougiId) {
+        case "shockwave":
+          // Expands to exactly the radius damage falls off over, so where you stood in the blast is readable.
+          this.effects.ring(pos.x, pos.y, SHOCKWAVE_RADIUS, skin.bodyColor);
+          this.effects.ring(pos.x, pos.y, SHOCKWAVE_RADIUS * 0.66, COLOR_SWING_STEEL, 260);
+          break;
+        case "crossSlash":
+          for (const dir of CARDINALS) {
+            const reach = this.beamReach(pos.x, pos.y, dir, clearedByOugi.get(ninjaId));
+            this.effects.beam(pos.x, pos.y, Math.atan2(dir.y, dir.x), reach, skin.bodyColor);
+          }
+          break;
+        default:
+          // Surge buffs rather than strikes, so the fire itself is a charge-up; the aura carries the duration.
+          this.effects.ring(pos.x, pos.y, NINJA_RADIUS * 5, skin.bodyColor, 420);
+          break;
+      }
+    }
+
+    playSfx(this, ougiSfxKey(characterId), 0.7, false);
+    this.effects.shake(300, this.involvesLocal(ninjaId) ? 0.014 : 0.008);
+    this.showOugiBanner(ninjaId, characterId);
+  }
+
+  /**
+   * How far one Cross Slash lane travelled, measured the way the Ougi measures it. The cover that blocked a
+   * beam is destroyed by that same beam, so by the time this runs it is already gone from the synced state —
+   * the ids the Ougi cleared this tick are fed back in as blockers, or every beam would overshoot its kill.
+   */
+  private beamReach(
+    x: number,
+    y: number,
+    dir: { x: number; y: number },
+    clearedIds: number[] | undefined,
+  ): number {
+    let reach = Infinity;
+    for (const wall of this.map.walls) {
+      const d = laneDistance(x, y, dir, wall, CROSS_SLASH_LANE_HALF_WIDTH);
+      if (d !== null && d < reach) reach = d;
+    }
+
+    const obstacles = this.state().obstacles;
+    for (let i = 0; i < this.map.obstacles.length; i++) {
+      const box = this.map.obstacles[i];
+      if (!box) continue;
+      if (!obstacles[i]?.alive && !clearedIds?.includes(i)) continue;
+      const d = laneDistance(x, y, dir, box, CROSS_SLASH_LANE_HALF_WIDTH);
+      if (d !== null && d < reach) reach = d;
+    }
+
+    return Number.isFinite(reach) ? reach : Math.max(this.map.width, this.map.height);
+  }
+
+  /** True while damage from this source is still attributable to an Ougi it just fired. */
+  private wasOugi(sourceId: string): boolean {
+    const at = this.recentOugi.get(sourceId);
+    return at !== undefined && performance.now() - at < OUGI_HIT_WINDOW_MS;
+  }
+
+  private showOugiBanner(ninjaId: string, characterId: string): void {
+    const ougi = ougiForCharacter(characterId);
+    const player = this.state().players.get(ninjaId);
+    this.ougiBannerNameEl.textContent = ougi.name;
+    this.ougiBannerCasterEl.textContent = `${player?.nickname ?? "???"} · ${ougi.description}`;
+    this.ougiBannerEl.hidden = false;
+    // Re-adding the class restarts the slam, exactly as the countdown's per-beat pop does.
+    this.ougiBannerEl.classList.remove("slam");
+    void this.ougiBannerEl.offsetWidth;
+    this.ougiBannerEl.classList.add("slam");
+
+    // On `window` rather than the scene clock: the banner is DOM, and it must clear itself even in a frame the
+    // scene isn't stepping. Hiding after teardown is harmless — the element is already hidden by then.
+    const seq = ++this.ougiBannerSeq;
+    window.setTimeout(() => {
+      if (seq === this.ougiBannerSeq) this.ougiBannerEl.hidden = true;
+    }, OUGI_BANNER_MS);
   }
 
   /** Launch juice: a burst at the take-off point plus a stretch on the sprite that eases back as it travels. */
@@ -654,7 +786,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Which way a hit came from, so its slash mark lies across the blow: the attacker's swing if it was one. */
   private hitAngle(sourceId: string, targetX: number, targetY: number): number {
-    const swing = this.lastSwingDir.get(sourceId);
+    // An Ougi's damage comes from the caster, not from whichever way they last swung, so it outranks the swing.
+    const swing = this.wasOugi(sourceId) ? undefined : this.lastSwingDir.get(sourceId);
     if (swing) return Math.atan2(swing.y, swing.x) + Math.PI / 2;
     const from = this.renderPos(sourceId);
     if (from) return Math.atan2(targetY - from.y, targetX - from.x) + Math.PI / 2;
@@ -720,6 +853,7 @@ export class GameScene extends Phaser.Scene {
     this.domListeners.abort();
     this.hudEl.hidden = true;
     this.countdownEl.hidden = true;
+    this.ougiBannerEl.hidden = true;
     this.matchEndEl.hidden = true;
     this.pauseEl.hidden = true;
     this.debugEl.hidden = true;
@@ -769,6 +903,7 @@ export class GameScene extends Phaser.Scene {
       for (const nudge of this.renderNudges.values()) this.tweens.killTweensOf(nudge);
       this.renderNudges.clear();
       this.lastSwingDir.clear();
+      this.recentOugi.clear();
       this.obstacleWobble.clear();
     }
     if (this.lastPhase !== state.phase) {
@@ -1226,10 +1361,14 @@ export class GameScene extends Phaser.Scene {
       sprite.setAlpha(alpha);
       sprite.setTint(skinFor(this.characterIdOf(serverNinja.id)).bodyColor);
 
-      // A running duration Ougi gets a pulsing aura so opponents can see the buff is live.
+      // A running duration Ougi gets a pulsing aura so opponents can see the buff is live. In the caster's own
+      // colour rather than gold, both because gold means KO/victory alone and because who is buffed matters.
       if (serverNinja.ougiTicks > 0) {
-        overlay.lineStyle(3, 0xffd166, 0.8);
-        overlay.strokeCircle(pos.x, pos.y, NINJA_RADIUS + 6 + 3 * Math.sin(performance.now() / 100));
+        const pulse = 3 * Math.sin(performance.now() / 100);
+        overlay.lineStyle(4, skinFor(this.characterIdOf(serverNinja.id)).bodyColor, 0.85);
+        overlay.strokeCircle(pos.x, pos.y, NINJA_RADIUS + 7 + pulse);
+        overlay.lineStyle(2, 0xffffff, 0.5);
+        overlay.strokeCircle(pos.x, pos.y, NINJA_RADIUS + 12 + pulse);
       }
 
       const hpFrac = clamp(serverNinja.hp / MAX_HP, 0, 1);

@@ -729,6 +729,58 @@ body {
 
 /* ---- Match end ---------------------------------------------------------- */
 
+/* ---- Ougi banner --------------------------------------------------------- */
+
+/*
+ * Sits high over the arena and never takes the pointer: it fires mid-fight, so it may not cost the player the
+ * frame it appears on. Same display face and ember as the countdown, scaled down to a caption.
+ */
+#ougi-banner {
+  position: fixed;
+  top: 14%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 26px;
+  max-width: min(92vw, 560px);
+  text-align: center;
+  pointer-events: none;
+  background: rgba(11, 15, 28, 0.82);
+  border: 3px solid var(--outline);
+  border-radius: var(--radius);
+}
+#ougi-banner-name {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ember);
+  -webkit-text-stroke: 2px var(--outline);
+  text-shadow: 0 3px 0 var(--outline);
+}
+#ougi-banner-caster {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+/* Restarted per Ougi by re-adding the class, the same way each countdown beat restarts its pop. */
+#ougi-banner.slam {
+  animation: ougi-slam 0.35s ease-out;
+}
+@keyframes ougi-slam {
+  from {
+    transform: translateX(-50%) scale(1.35);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
 /* ---- Match-start countdown ---------------------------------------------- */
 
 /*

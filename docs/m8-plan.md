@@ -7,7 +7,7 @@ The MVP shipped (S1–S17, live at ougi-arena.j-desolate53.workers.dev). This mi
 **Decisions made with the user:**
 1. **No true isometric projection.** Keep the top-down grid; deepen the existing faux-depth (taller pillars with cast shadows, wall faces, tile texturing, stronger `ySortDepth` occlusion). The sim and input math stay untouched.
 2. **One sim change is in scope:** fan (tessen) knockback — push the hit target 1 tile. Longsword's "cleaves light cover in one hit" is already effectively true (20 dmg vs hay's 16 HP); kunai already matches its spec. Opus session per model policy.
-3. **Art = code-drawn runtime textures + CC0 packs** (Kenney etc., credited in `docs/asset-credits.md`). No AI-generated sheets; original/CC0 only per CLAUDE.md.
+3. **In-game art = code-drawn runtime textures + CC0 packs** (Kenney etc., credited in `docs/asset-credits.md`). Still no AI-generated sprite sheets — AI can't hold a consistent palette or grid across 16x16 frames, and every arena texture is already generated in code. **Brand/marketing art (logo, social images) may be AI-generated** — revised 2026-07-27 at the user's request; the landing-page logo is the first such asset.
 
 **Current-state facts the sessions rely on:**
 - All UI is DOM overlays in one `index.html` `<style>` block — no CSS tokens. Screens: `#lobby` (form + room views), `#hud` top bar, `#match-end`.

@@ -41,4 +41,6 @@ pnpm lint
 - TS strict everywhere; avoid `any`.
 - `packages/server` uses `@colyseus/schema` decorators — requires `experimentalDecorators: true` in its tsconfig (see `packages/server/tsconfig.json`).
 - Comments are one line, explain *why* not *what*.
-- Original art/audio/names only — no Nindou assets or branding.
+- No Nindou assets or branding, ever. Beyond that: in-game art stays code-drawn or CC0 (AI is unreliable at
+  consistent 16x16 sheets); brand/marketing art may be AI-generated. Record every asset's provenance in
+  `docs/asset-credits.md`.

@@ -6,12 +6,16 @@ art is listed separately below.
 
 Original game names, characters and Ougi designs are ours; nothing here is from Nindou.
 
+Brand art may be AI-generated (see `CLAUDE.md`); in-game art stays code-drawn or CC0. Note that purely
+AI-generated images can't be registered for copyright in some jurisdictions, including the US — it doesn't
+stop you shipping them, but it does mean the logo may not be an asset you can defend as exclusively yours.
+
 ## Art
 
 | File | Source |
 |---|---|
 | `packages/client/public/assets/sprites/ninja.png` | [Roguelike Characters](https://kenney.nl/assets/roguelike-characters) by [Kenney](https://kenney.nl) — one 16x16 frame from the pack's spritesheet, recolored per character at runtime |
-| `packages/client/public/logo.png` | Project brand logo, supplied by the author — **provenance to be recorded here before ship** (`docs/m8-plan.md` commits the project to original/CC0 art only) |
+| `packages/client/public/logo.webp`, `favicon.png` | Project brand logo — AI-generated, supplied by the author. Source file kept out of the bundle at `packages/client/brand/logo-source.png`; the shipped versions are circle-masked (the source has an opaque black background) and downscaled from 1254px |
 
 Weapon icons, map thumbnails, character portraits and every arena texture are drawn in code at runtime
 (`src/ui/weapon-icon.ts`, `src/ui/map-thumb.ts`, `src/ui/portrait.ts`, `src/scenes/GameScene.ts`) — no files to credit.

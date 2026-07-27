@@ -4,351 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ougi Arena</title>
-    <style>
-      [hidden] {
-        display: none !important;
-      }
-      body {
-        margin: 0;
-        background: #1a1a2e;
-        color: #eee;
-        font-family: system-ui, sans-serif;
-        /* Kills the 300ms double-tap delay on touch without taking pinch-zoom away from the player. */
-        touch-action: manipulation;
-        overscroll-behavior: none;
-      }
-      /* The arena is a drag surface: a pull-back gesture must not scroll or rubber-band the page under it. */
-      #app canvas {
-        touch-action: none;
-        display: block;
-      }
-      #lobby {
-        max-width: 420px;
-        margin: 48px auto;
-        padding: 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-      #waking-note {
-        margin: 0;
-        padding: 8px 12px;
-        border-radius: 4px;
-        background: #2c2c50;
-        color: #ffd166;
-        font-size: 0.9rem;
-      }
-      #lobby input[type="text"],
-      #lobby input:not([type]) {
-        padding: 8px;
-        font-size: 1rem;
-      }
-      .join-row {
-        display: flex;
-        gap: 8px;
-      }
-      .join-row input {
-        flex: 1;
-      }
-      #lobby-error {
-        color: #ff6b6b;
-        min-height: 1.2em;
-      }
-      #player-list,
-      #room-list {
-        list-style: none;
-        padding: 0;
-      }
-      #player-list li,
-      #room-list li {
-        padding: 4px 0;
-        border-bottom: 1px solid #333;
-      }
-      #room-list li {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-      #quick-play-btn {
-        padding: 10px;
-        font-size: 1.1rem;
-        font-weight: bold;
-        background: #ffd166;
-        color: #1a1a2e;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      #lobby h2 {
-        font-size: 1rem;
-        margin: 8px 0 0;
-        color: #aaa;
-      }
-      #room-list-empty {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #aaa;
-      }
-      #debug {
-        position: fixed;
-        right: 8px;
-        bottom: 8px;
-        padding: 8px 12px;
-        background: rgba(0, 0, 0, 0.75);
-        border-radius: 4px;
-        font-family: ui-monospace, monospace;
-        font-size: 0.75rem;
-        line-height: 1.5;
-        white-space: pre;
-      }
-      #hud {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 8px 16px;
-        background: rgba(26, 26, 46, 0.85);
-        font-size: 0.9rem;
-      }
-      #hud-timer {
-        font-weight: bold;
-        min-width: 3.5em;
-      }
-      .meter-bar {
-        width: 100px;
-        height: 8px;
-        background: #333;
-        border-radius: 4px;
-        overflow: hidden;
-      }
-      .meter-fill {
-        height: 100%;
-      }
-      #hud-tp-fill {
-        background: #4fc3f7;
-      }
-      #hud-sp-fill {
-        background: #ffd166;
-      }
-      #hud-weapon-fill {
-        background: #8bc34a;
-      }
-      #hud-ougi-btn {
-        padding: 4px 10px;
-        font-size: 0.85rem;
-        border: 1px solid #555;
-        border-radius: 4px;
-        background: #2a2a44;
-        color: #888;
-      }
-      #hud-ougi-btn:not([disabled]) {
-        background: #ffd166;
-        color: #1a1a2e;
-        font-weight: bold;
-        cursor: pointer;
-      }
-      #character-ougi {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #aaa;
-        min-height: 2.4em;
-      }
-      #character-select,
-      #weapon-select {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-      }
-      #weapon-description {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #aaa;
-        min-height: 2.4em;
-      }
-      .character-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-        padding: 10px 4px;
-        background: #22223f;
-        border: 2px solid transparent;
-        border-radius: 6px;
-        color: #eee;
-        font: inherit;
-        font-size: 0.9rem;
-        cursor: pointer;
-      }
-      .character-card:hover {
-        background: #2c2c50;
-      }
-      .character-card[aria-pressed="true"] {
-        border-color: #ffd166;
-        background: #2c2c50;
-      }
-      .character-card canvas {
-        width: 48px;
-        height: 48px;
-        image-rendering: pixelated;
-      }
-      #map-select {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-      }
-      .map-card {
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 4px;
-        padding: 6px;
-        background: #22223f;
-        border: 2px solid transparent;
-        border-radius: 6px;
-        color: #eee;
-        font: inherit;
-        font-size: 0.8rem;
-        text-align: center;
-        cursor: pointer;
-      }
-      .map-card:hover:not([disabled]) {
-        background: #2c2c50;
-      }
-      .map-card[aria-pressed="true"] {
-        border-color: #ffd166;
-        background: #2c2c50;
-      }
-      .map-card[disabled] {
-        cursor: default;
-      }
-      .map-card canvas {
-        width: 100%;
-        height: auto;
-        border-radius: 2px;
-        image-rendering: pixelated;
-      }
-      #map-note {
-        margin: 0;
-        font-size: 0.85rem;
-        color: #aaa;
-      }
-      #hud-timer.urgent {
-        color: #ff6b6b;
-      }
-      #hud-scoreboard {
-        list-style: none;
-        display: flex;
-        gap: 12px;
-        margin: 0;
-        padding: 0;
-      }
-      #match-end {
-        position: fixed;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.7);
-      }
-      #match-end-panel {
-        background: #1a1a2e;
-        padding: 24px 32px;
-        border-radius: 8px;
-        min-width: 280px;
-        text-align: center;
-      }
-      #match-end-results {
-        list-style: none;
-        padding: 0;
-        text-align: left;
-      }
-      #match-end-results li {
-        padding: 4px 0;
-        border-bottom: 1px solid #333;
-      }
-      #match-end-results li.winner {
-        color: #ffd166;
-        font-weight: bold;
-      }
-
-      /* A 15x8 arena letterboxes to a sliver in portrait, so nudge — but only where it applies. */
-      #rotate-note {
-        display: none;
-        flex-basis: 100%;
-        color: #ffd166;
-        font-size: 0.75rem;
-      }
-      @media (max-width: 520px) and (orientation: portrait) {
-        #rotate-note {
-          display: block;
-        }
-      }
-
-      /* Light mobile pass: the lobby is a single column already, so it mostly needs room to breathe and
-         thumb-sized targets; the HUD is the one row that genuinely doesn't fit a phone at desktop sizing. */
-      @media (max-width: 520px) {
-        #lobby {
-          margin: 16px auto;
-          padding: 16px;
-        }
-        #lobby h1 {
-          font-size: 1.5rem;
-          margin: 0;
-        }
-        #lobby button {
-          min-height: 44px;
-        }
-        #lobby input[type="text"],
-        #lobby input:not([type]) {
-          /* Under 16px, iOS Safari zooms the page on focus and never zooms back out. */
-          font-size: 16px;
-        }
-        #hud {
-          flex-wrap: wrap;
-          gap: 8px;
-          padding: 6px 10px;
-          font-size: 0.8rem;
-        }
-        .meter-bar {
-          width: 64px;
-        }
-        #hud-scoreboard {
-          flex-basis: 100%;
-          gap: 10px;
-        }
-        #match-end-panel {
-          min-width: 0;
-          width: min(90vw, 320px);
-          padding: 20px;
-        }
-        #debug {
-          font-size: 0.65rem;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="lobby">
       <h1>Ougi Arena</h1>
       <p id="waking-note" hidden>Waking the dojo… the free server sleeps when idle, this takes up to a minute.</p>
       <div id="lobby-form">
-        <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
+        <input id="nickname-input" class="input-recessed" type="text" placeholder="Nickname" maxlength="16" />
         <h2>Choose your ninja</h2>
         <div id="character-select"></div>
         <p id="character-ougi"></p>
         <h2>Choose your weapon</h2>
         <div id="weapon-select"></div>
         <p id="weapon-description"></p>
-        <button id="quick-play-btn">Quick Play</button>
+        <button id="quick-play-btn" class="btn-arcade">Quick Play</button>
         <label><input id="private-toggle" type="checkbox" /> Private room</label>
-        <button id="create-btn">Create room</button>
+        <button id="create-btn" class="btn-quiet">Create room</button>
         <div class="join-row">
-          <input id="join-code-input" type="text" placeholder="Room code" />
-          <button id="join-btn">Join</button>
+          <input id="join-code-input" class="input-recessed" type="text" placeholder="Room code" />
+          <button id="join-btn" class="btn-quiet">Join</button>
         </div>
         <h2>Open rooms</h2>
         <ul id="room-list"></ul>
@@ -356,31 +31,31 @@
         <p id="lobby-error"></p>
       </div>
       <div id="lobby-room" hidden>
-        <p>Room code: <span id="room-code"></span> <button id="copy-link-btn">Copy link</button></p>
+        <p>Room code: <span id="room-code"></span> <button id="copy-link-btn" class="btn-quiet">Copy link</button></p>
         <ul id="player-list"></ul>
         <h2>Arena</h2>
         <div id="map-select"></div>
         <p id="map-note" hidden>The host picks the arena.</p>
         <p id="spectate-note" hidden>You're spectating this match — you'll join the next one.</p>
-        <button id="start-btn" hidden>Start match</button>
+        <button id="start-btn" class="btn-arcade" hidden>Start match</button>
         <p id="waiting-note">Waiting for the host to start…</p>
         <p id="bots-note">Empty slots are filled with bots — start any time, alone or with friends.</p>
       </div>
     </div>
     <div id="hud" hidden>
       <span id="hud-timer">2:00</span>
-      <div class="meter-bar"><div id="hud-tp-fill" class="meter-fill" style="width: 100%"></div></div>
-      <div class="meter-bar"><div id="hud-sp-fill" class="meter-fill" style="width: 0%"></div></div>
-      <div class="meter-bar"><div id="hud-weapon-fill" class="meter-fill" style="width: 100%"></div></div>
-      <button id="hud-ougi-btn" disabled>Ougi</button>
+      <div class="gauge-track"><div id="hud-tp-fill" class="gauge-fill" style="width: 100%"></div></div>
+      <div class="gauge-track"><div id="hud-sp-fill" class="gauge-fill" style="width: 0%"></div></div>
+      <div class="gauge-track"><div id="hud-weapon-fill" class="gauge-fill" style="width: 100%"></div></div>
+      <button id="hud-ougi-btn" class="btn-arcade" disabled>Ougi</button>
       <ul id="hud-scoreboard"></ul>
       <span id="rotate-note">Turn your phone sideways for a bigger arena.</span>
     </div>
     <div id="match-end" hidden>
-      <div id="match-end-panel">
+      <div id="match-end-panel" class="panel">
         <h2 id="match-end-title">Match over</h2>
         <ul id="match-end-results"></ul>
-        <button id="match-end-rematch-btn" hidden>Rematch</button>
+        <button id="match-end-rematch-btn" class="btn-arcade" hidden>Rematch</button>
         <p id="match-end-note" hidden>Waiting for the host to start a rematch…</p>
       </div>
     </div>

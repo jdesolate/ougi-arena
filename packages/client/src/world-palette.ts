@@ -1,6 +1,9 @@
 /**
  * The arena's colours, in one place because two things draw the same world: the Phaser scene and the lobby's
  * map thumbnails. A picker that didn't match the arena you land in would be worse than no picker.
+ *
+ * The DOM shares this palette too: src/style.css maps these constants onto CSS tokens
+ * (see the header comment there). A value changed here must change there as well.
  */
 export const COLOR_FLOOR = 0x0f3460;
 export const COLOR_BORDER = 0x16213e;

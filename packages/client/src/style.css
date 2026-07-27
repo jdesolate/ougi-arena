@@ -1,0 +1,434 @@
+/*
+ * Ougi Arena design system (S18). Every DOM color/spacing decision lives in the :root
+ * token block; screens compose the component classes below instead of inventing values.
+ *
+ * Token <-> world-palette.ts mapping (keep in sync so DOM chrome and canvas can't drift):
+ *   --ink-950          <- COLOR_PILLAR_EDGE  (0x131c33)  deepest line work
+ *   --ink-900          <- COLOR_BORDER       (0x16213e)  page background family
+ *   --ink-700          <- COLOR_FLOOR        (0x0f3460)  arena floor blue, used for accents/insets
+ *   --ink-500          <- COLOR_PILLAR_BODY  (0x2b3a68)  raised surfaces
+ *   --ink-300          <- COLOR_PILLAR_TOP   (0x4a5f9e)  lit edges / strong lines
+ *   --gold             <- COLOR_SPAWN        (0xffd166)  the one shared accent
+ *   --wood / --wood-dark are DOM-only (lacquer frames have no canvas counterpart);
+ *   COLOR_OBSTACLE_* stay canvas-only. Change a shared value in both files or not at all.
+ */
+
+:root {
+  /* Ink-wash slate scale (blue-black -> lit blue). */
+  --ink-950: #131c33;
+  --ink-900: #16213e;
+  --ink-850: #1a1a2e;
+  --ink-800: #22223f;
+  --ink-750: #2a2a44;
+  --ink-700: #0f3460;
+  --ink-650: #2c2c50;
+  --ink-500: #2b3a68;
+  --ink-300: #4a5f9e;
+
+  /* Accents. */
+  --gold: #ffd166;
+  --gold-deep: #d4a63f;
+  --hp-red: #ff6b6b;
+  --chakra-blue: #4fc3f7;
+  --stamina-green: #8bc34a;
+
+  /* Lacquered wood frame family (DOM-only, no canvas counterpart). */
+  --wood: #4a3226;
+  --wood-dark: #2e1f18;
+  --plate: #8a7a52;
+
+  /* Text. */
+  --text: #eee;
+  --text-dim: #aab0c8;
+  --text-faint: #7b81a0;
+
+  /* Structure. */
+  --line: var(--ink-500);
+  --line-soft: #333;
+  --radius: 6px;
+  --radius-sm: 4px;
+
+  /* Surfaces. */
+  --bg: var(--ink-850);
+  --surface: var(--ink-800);
+  --surface-raised: var(--ink-650);
+  --surface-inset: var(--ink-950);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  /* Kills the 300ms double-tap delay on touch without taking pinch-zoom away from the player. */
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+/* The arena is a drag surface: a pull-back gesture must not scroll or rubber-band the page under it. */
+#app canvas {
+  touch-action: none;
+  display: block;
+}
+
+/* ---- Components ------------------------------------------------------- */
+
+/* Lacquered wood panel with metallic corner plates; the frame for modals and grouped controls. */
+.panel {
+  position: relative;
+  background:
+    linear-gradient(var(--plate), var(--plate)) top left,
+    linear-gradient(var(--plate), var(--plate)) top right,
+    linear-gradient(var(--plate), var(--plate)) bottom left,
+    linear-gradient(var(--plate), var(--plate)) bottom right;
+  background-size: 12px 12px;
+  background-repeat: no-repeat;
+  background-color: var(--surface);
+  border: 3px solid var(--wood);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 0 0 1px var(--wood-dark),
+    0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+/* Recessed input: carved into the surface rather than floating on it. */
+.input-recessed {
+  background: var(--surface-inset);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+.input-recessed:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: -1px;
+}
+
+/* Chunky arcade action button: gold face, pressed-in travel on click. */
+.btn-arcade {
+  background: linear-gradient(var(--gold), var(--gold-deep));
+  color: var(--ink-850);
+  font-weight: bold;
+  border: none;
+  border-bottom: 3px solid #9c7a2c;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.btn-arcade:hover:not([disabled]) {
+  filter: brightness(1.08);
+}
+.btn-arcade:active:not([disabled]) {
+  border-bottom-width: 1px;
+  transform: translateY(2px);
+}
+.btn-arcade[disabled] {
+  background: var(--ink-750);
+  color: var(--text-faint);
+  border-bottom-color: var(--ink-950);
+  cursor: default;
+}
+
+/* Quiet secondary button for room plumbing (create/join/copy). */
+.btn-quiet {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.btn-quiet:hover:not([disabled]) {
+  border-color: var(--ink-300);
+}
+
+/* Selectable card (characters, weapons, maps): gold glow when picked. */
+.card {
+  background: var(--surface);
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.card:hover:not([disabled]) {
+  background: var(--surface-raised);
+}
+.card[aria-pressed="true"] {
+  border-color: var(--gold);
+  background: var(--surface-raised);
+  box-shadow: 0 0 8px rgba(255, 209, 102, 0.35);
+}
+.card[disabled] {
+  cursor: default;
+}
+
+/* Gauge: recessed track + colored fill, sized/tinted per use. */
+.gauge-track {
+  width: 100px;
+  height: 8px;
+  background: var(--surface-inset);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.gauge-fill {
+  height: 100%;
+}
+
+/* ---- Lobby ------------------------------------------------------------ */
+
+#lobby {
+  max-width: 420px;
+  margin: 48px auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+#waking-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--gold);
+  font-size: 0.9rem;
+}
+#lobby input[type="text"],
+#lobby input:not([type]) {
+  padding: 8px;
+  font-size: 1rem;
+}
+.join-row {
+  display: flex;
+  gap: 8px;
+}
+.join-row input {
+  flex: 1;
+}
+#lobby-error {
+  color: var(--hp-red);
+  min-height: 1.2em;
+}
+#player-list,
+#room-list {
+  list-style: none;
+  padding: 0;
+}
+#player-list li,
+#room-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+#room-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#quick-play-btn {
+  padding: 10px;
+  font-size: 1.1rem;
+}
+#lobby h2 {
+  font-size: 1rem;
+  margin: 8px 0 0;
+  color: var(--text-dim);
+}
+#room-list-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+#character-ougi,
+#weapon-description {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  min-height: 2.4em;
+}
+#character-select,
+#weapon-select,
+#map-select {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.character-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  font-size: 0.9rem;
+}
+.character-card canvas {
+  width: 48px;
+  height: 48px;
+  image-rendering: pixelated;
+}
+.map-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+.map-card canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 2px;
+  image-rendering: pixelated;
+}
+#map-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+/* ---- HUD --------------------------------------------------------------- */
+
+#hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: rgba(26, 26, 46, 0.85);
+  font-size: 0.9rem;
+}
+#hud-timer {
+  font-weight: bold;
+  min-width: 3.5em;
+}
+#hud-timer.urgent {
+  color: var(--hp-red);
+}
+#hud-tp-fill {
+  background: var(--chakra-blue);
+}
+#hud-sp-fill {
+  background: var(--gold);
+}
+#hud-weapon-fill {
+  background: var(--stamina-green);
+}
+#hud-ougi-btn {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+}
+#hud-scoreboard {
+  list-style: none;
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Match end ---------------------------------------------------------- */
+
+#match-end {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+}
+#match-end-panel {
+  padding: 24px 32px;
+  min-width: 280px;
+  text-align: center;
+}
+#match-end-results {
+  list-style: none;
+  padding: 0;
+  text-align: left;
+}
+#match-end-results li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+#match-end-results li.winner {
+  color: var(--gold);
+  font-weight: bold;
+}
+
+/* ---- Debug -------------------------------------------------------------- */
+
+#debug {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* ---- Mobile ------------------------------------------------------------- */
+
+/* A 15x8 arena letterboxes to a sliver in portrait, so nudge — but only where it applies. */
+#rotate-note {
+  display: none;
+  flex-basis: 100%;
+  color: var(--gold);
+  font-size: 0.75rem;
+}
+@media (max-width: 520px) and (orientation: portrait) {
+  #rotate-note {
+    display: block;
+  }
+}
+
+/* Light mobile pass: the lobby is a single column already, so it mostly needs room to breathe and
+   thumb-sized targets; the HUD is the one row that genuinely doesn't fit a phone at desktop sizing. */
+@media (max-width: 520px) {
+  #lobby {
+    margin: 16px auto;
+    padding: 16px;
+  }
+  #lobby h1 {
+    font-size: 1.5rem;
+    margin: 0;
+  }
+  #lobby button {
+    min-height: 44px;
+  }
+  #lobby input[type="text"],
+  #lobby input:not([type]) {
+    /* Under 16px, iOS Safari zooms the page on focus and never zooms back out. */
+    font-size: 16px;
+  }
+  #hud {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+  .gauge-track {
+    width: 64px;
+  }
+  #hud-scoreboard {
+    flex-basis: 100%;
+    gap: 10px;
+  }
+  #match-end-panel {
+    min-width: 0;
+    width: min(90vw, 320px);
+    padding: 20px;
+  }
+  #debug {
+    font-size: 0.65rem;
+  }
+}

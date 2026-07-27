@@ -132,7 +132,7 @@ export function initLobby(onStart: (room: Room) => void): void {
     for (const map of ARENAS) {
       const card = document.createElement("button");
       card.type = "button";
-      card.className = "map-card";
+      card.className = "card map-card";
       card.setAttribute("aria-pressed", "false");
 
       const canvas = document.createElement("canvas");
@@ -224,7 +224,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   for (const character of CHARACTERS) {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "character-card";
+    card.className = "card character-card";
     card.setAttribute("aria-pressed", "false");
 
     const canvas = document.createElement("canvas");
@@ -257,7 +257,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   for (const weapon of WEAPONS) {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "character-card";
+    card.className = "card character-card";
     card.setAttribute("aria-pressed", "false");
 
     const name = document.createElement("span");

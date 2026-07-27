@@ -64,12 +64,29 @@
       </div>
     </div>
     <div id="hud" hidden>
-      <span id="hud-timer">2:00</span>
-      <div class="gauge-track"><div id="hud-tp-fill" class="gauge-fill" style="width: 100%"></div></div>
-      <div class="gauge-track"><div id="hud-sp-fill" class="gauge-fill" style="width: 0%"></div></div>
-      <div class="gauge-track"><div id="hud-weapon-fill" class="gauge-fill" style="width: 100%"></div></div>
-      <button id="hud-ougi-btn" class="btn-arcade" disabled>Ougi</button>
-      <ul id="hud-scoreboard"></ul>
+      <div id="hud-top" class="panel">
+        <span id="hud-timer">2:00</span>
+        <span id="hud-alive"></span>
+      </div>
+      <div id="hud-bottom" class="panel">
+        <div class="hud-gauge">
+          <span class="hud-gauge-label">HP</span>
+          <div class="gauge-track"><div id="hud-hp-fill" class="gauge-fill" style="width: 100%"></div></div>
+        </div>
+        <div class="hud-gauge">
+          <span class="hud-gauge-label">TP</span>
+          <div class="gauge-track"><div id="hud-tp-fill" class="gauge-fill" style="width: 100%"></div></div>
+        </div>
+        <div class="hud-gauge">
+          <span class="hud-gauge-label">SP</span>
+          <div class="gauge-track"><div id="hud-sp-fill" class="gauge-fill" style="width: 0%"></div></div>
+        </div>
+        <div id="hud-weapon-frame">
+          <canvas id="hud-weapon-icon"></canvas>
+          <div id="hud-weapon-fill"></div>
+        </div>
+        <button id="hud-ougi-btn" class="btn-arcade" disabled>Ougi</button>
+      </div>
       <span id="rotate-note">Turn your phone sideways for a bigger arena.</span>
     </div>
     <div id="match-end" hidden>

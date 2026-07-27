@@ -31,6 +31,7 @@ import {
   skinFor,
 } from "../skins.js";
 import { ougiSfxKey, playSfx, preloadSfx } from "../audio/sfx.js";
+import { drawWeaponIcon } from "../ui/weapon-icon.js";
 import {
   DEPTH_AIM,
   DEPTH_OVERLAY,
@@ -199,11 +200,16 @@ export class GameScene extends Phaser.Scene {
 
   private readonly hudEl = el<HTMLDivElement>("hud");
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
+  private readonly hudAliveEl = el<HTMLSpanElement>("hud-alive");
+  private readonly hudHpFillEl = el<HTMLDivElement>("hud-hp-fill");
   private readonly hudTpFillEl = el<HTMLDivElement>("hud-tp-fill");
   private readonly hudSpFillEl = el<HTMLDivElement>("hud-sp-fill");
+  private readonly hudWeaponFrameEl = el<HTMLDivElement>("hud-weapon-frame");
+  private readonly hudWeaponIconEl = el<HTMLCanvasElement>("hud-weapon-icon");
   private readonly hudWeaponFillEl = el<HTMLDivElement>("hud-weapon-fill");
   private readonly hudOugiBtn = el<HTMLButtonElement>("hud-ougi-btn");
-  private readonly hudScoreboardEl = el<HTMLUListElement>("hud-scoreboard");
+  /** Tracks which weapon's icon is currently painted onto the canvas, so it's only redrawn on change. */
+  private lastDrawnWeaponId = "";
   private readonly matchEndEl = el<HTMLDivElement>("match-end");
   private readonly matchEndTitleEl = el<HTMLHeadingElement>("match-end-title");
   private readonly matchEndResultsEl = el<HTMLUListElement>("match-end-results");
@@ -635,7 +641,7 @@ export class GameScene extends Phaser.Scene {
     this.renderMatchEnd();
   }
 
-  /** Timer, TP/SP meters, and the live scoreboard — plain DOM, matching the lobby overlay's approach. */
+  /** Timer, alive count, HP/TP/SP gauges, and the weapon cooldown frame — plain DOM, matching the lobby overlay's approach. */
   private renderHud(): void {
     const state = this.state();
     const minutes = Math.floor(state.matchTimeRemaining / 60);
@@ -656,13 +662,23 @@ export class GameScene extends Phaser.Scene {
       state.phase === "playing" && remaining > 0 && remaining <= COUNTDOWN_FROM_SECONDS,
     );
 
+    const aliveCount = state.ninjas.filter((n) => n.active).length;
+    this.hudAliveEl.textContent = `${aliveCount}/${state.ninjas.length} alive`;
+
     const mine = this.serverNinja();
+    this.hudHpFillEl.style.width = `${clamp(((mine?.hp ?? 0) / MAX_HP) * 100, 0, 100)}%`;
     this.hudTpFillEl.style.width = `${clamp(((mine?.tp ?? 0) / MAX_TP) * 100, 0, 100)}%`;
     this.hudSpFillEl.style.width = `${clamp(((mine?.sp ?? 0) / MAX_SP) * 100, 0, 100)}%`;
 
-    const weaponCooldown = weaponFor(mine?.weaponId ?? "").cooldownTicks;
+    const weaponId = mine?.weaponId ?? "";
+    if (weaponId && weaponId !== this.lastDrawnWeaponId) {
+      drawWeaponIcon(this.hudWeaponIconEl, weaponId);
+      this.lastDrawnWeaponId = weaponId;
+    }
+    const weaponCooldown = weaponFor(weaponId).cooldownTicks;
     const weaponReadyFrac = weaponCooldown > 0 ? 1 - (mine?.attackCooldown ?? 0) / weaponCooldown : 1;
-    this.hudWeaponFillEl.style.width = `${clamp(weaponReadyFrac * 100, 0, 100)}%`;
+    this.hudWeaponFillEl.style.height = `${clamp((1 - weaponReadyFrac) * 100, 0, 100)}%`;
+    this.hudWeaponFrameEl.classList.toggle("ready", weaponReadyFrac >= 1);
 
     const characterId = state.players.get(this.localId)?.characterId ?? "";
     const ougi = ougiForCharacter(characterId);
@@ -670,17 +686,6 @@ export class GameScene extends Phaser.Scene {
     this.hudOugiBtn.textContent = ready ? `${ougi.name} — Space` : ougi.name;
     this.hudOugiBtn.disabled = !ready || !mine?.active;
     this.hudOugiBtn.title = ougi.description;
-
-    this.hudScoreboardEl.innerHTML = "";
-    const rows = state.ninjas
-      .map((n) => ({ id: n.id, player: state.players.get(n.id) }))
-      .filter((row): row is { id: string; player: PlayerView } => row.player !== undefined)
-      .sort((a, b) => b.player.score - a.player.score);
-    for (const row of rows) {
-      const li = document.createElement("li");
-      li.textContent = `${row.player.nickname}${row.player.isBot ? " (bot)" : ""}: ${row.player.score}`;
-      this.hudScoreboardEl.appendChild(li);
-    }
   }
 
   /** Shows the final scoreboard once the match ends; host gets a rematch button, everyone else waits on them. */

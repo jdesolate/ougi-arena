@@ -152,6 +152,9 @@ body {
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
 }
 .card:hover:not([disabled]) {
   background: var(--surface-raised);
@@ -159,7 +162,8 @@ body {
 .card[aria-pressed="true"] {
   border-color: var(--gold);
   background: var(--surface-raised);
-  box-shadow: 0 0 8px rgba(255, 209, 102, 0.35);
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.45);
+  transform: translateY(-3px);
 }
 .card[disabled] {
   cursor: default;
@@ -181,12 +185,39 @@ body {
 /* ---- Lobby ------------------------------------------------------------ */
 
 #lobby {
-  max-width: 420px;
+  max-width: 860px;
   margin: 48px auto;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+#lobby h1 {
+  text-align: center;
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+}
+/* Landing: picks on the left, play actions on the right; each column its own framed panel. */
+#lobby-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.landing-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+}
+.landing-col h2:first-child {
+  margin-top: 0;
+}
+/* The pre-match room view keeps the old single-column width. */
+#lobby-room {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
 }
 #waking-note {
   margin: 0;
@@ -388,6 +419,16 @@ body {
 @media (max-width: 520px) and (orientation: portrait) {
   #rotate-note {
     display: block;
+  }
+}
+
+/* The two landing columns collapse to one before phone sizing kicks in. */
+@media (max-width: 760px) {
+  #lobby-form {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    margin: 0 auto;
+    width: 100%;
   }
 }
 

@@ -7,6 +7,7 @@ import { playUiSfx } from "./audio/sfx.js";
 import { skinFor } from "./skins.js";
 import { drawPortrait } from "./ui/portrait.js";
 import { drawMapThumb } from "./ui/map-thumb.js";
+import { drawWeaponIcon } from "./ui/weapon-icon.js";
 
 const NICKNAME_MAX_LENGTH = 16;
 const RECONNECT_STORAGE_KEY = "ougi-arena:reconnect";
@@ -260,10 +261,13 @@ export function initLobby(onStart: (room: Room) => void): void {
     card.className = "card character-card";
     card.setAttribute("aria-pressed", "false");
 
+    const canvas = document.createElement("canvas");
+    drawWeaponIcon(canvas, weapon.id);
+
     const name = document.createElement("span");
     name.textContent = weapon.name;
 
-    card.append(name);
+    card.append(canvas, name);
     card.addEventListener("click", () => selectWeapon(weapon.id));
     weaponSelectEl.appendChild(card);
     weaponCards.set(weapon.id, card);

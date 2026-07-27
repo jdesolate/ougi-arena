@@ -228,3 +228,11 @@ Append one entry per session: what was done, what's next, any open issues. This 
 - Token ↔ `world-palette.ts` mapping documented in the style.css header (which token mirrors which canvas constant) with a reciprocal note in world-palette.ts; `--wood` family and `COLOR_OBSTACLE_*` are declared single-sided on purpose.
 - No layout changes — grid/flex/spacing rules carried over verbatim, including the S16 mobile pass; verified in the dev preview (landing screen renders, selected-card glow, zero console errors).
 - **Next:** S19 homepage arcade layout (consumes these tokens), or S20 arena depth pass (parallel-safe).
+
+## S19 — Homepage arcade layout (2026-07-27)
+
+- Landing page restructured into a 2-column grid (`#lobby-form`): left panel = ninja + weapon selects with descriptions, right panel = nickname, Quick Play, private-room/create/join controls and the open-rooms list. Both columns are S18 `.panel` frames; `#lobby` widened to 860px, title centered; the pre-match room view (`#lobby-room`) keeps the old 420px single column.
+- New `src/ui/weapon-icon.ts`: code-drawn 16x16 pixel icons (kunai, tessen, longsword) upscaled by CSS to match the ninja portraits; weapon cards in `lobby.ts` now carry them.
+- Selected cards gain a lift (`translateY(-3px)`) plus a stronger gold glow, with a short transition on all `.card`s.
+- Responsive: columns collapse to one at ≤760px, ahead of the existing ≤520px mobile pass which is unchanged; verified 375x812 has no horizontal overflow.
+- Verified in dev preview: layout renders, weapon selection swaps glow/lift/description correctly, zero console errors. Typecheck + lint green. **Next:** S20 arena faux-depth pass.

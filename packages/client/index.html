@@ -11,24 +11,28 @@
       <h1>Ougi Arena</h1>
       <p id="waking-note" hidden>Waking the dojo… the free server sleeps when idle, this takes up to a minute.</p>
       <div id="lobby-form">
-        <input id="nickname-input" class="input-recessed" type="text" placeholder="Nickname" maxlength="16" />
-        <h2>Choose your ninja</h2>
-        <div id="character-select"></div>
-        <p id="character-ougi"></p>
-        <h2>Choose your weapon</h2>
-        <div id="weapon-select"></div>
-        <p id="weapon-description"></p>
-        <button id="quick-play-btn" class="btn-arcade">Quick Play</button>
-        <label><input id="private-toggle" type="checkbox" /> Private room</label>
-        <button id="create-btn" class="btn-quiet">Create room</button>
-        <div class="join-row">
-          <input id="join-code-input" class="input-recessed" type="text" placeholder="Room code" />
-          <button id="join-btn" class="btn-quiet">Join</button>
-        </div>
-        <h2>Open rooms</h2>
-        <ul id="room-list"></ul>
-        <p id="room-list-empty">No public rooms right now — Quick Play will open one.</p>
-        <p id="lobby-error"></p>
+        <section class="panel landing-col" id="landing-picks">
+          <h2>Choose your ninja</h2>
+          <div id="character-select"></div>
+          <p id="character-ougi"></p>
+          <h2>Choose your weapon</h2>
+          <div id="weapon-select"></div>
+          <p id="weapon-description"></p>
+        </section>
+        <section class="panel landing-col" id="landing-actions">
+          <input id="nickname-input" class="input-recessed" type="text" placeholder="Nickname" maxlength="16" />
+          <button id="quick-play-btn" class="btn-arcade">Quick Play</button>
+          <label><input id="private-toggle" type="checkbox" /> Private room</label>
+          <button id="create-btn" class="btn-quiet">Create room</button>
+          <div class="join-row">
+            <input id="join-code-input" class="input-recessed" type="text" placeholder="Room code" />
+            <button id="join-btn" class="btn-quiet">Join</button>
+          </div>
+          <h2>Open rooms</h2>
+          <ul id="room-list"></ul>
+          <p id="room-list-empty">No public rooms right now — Quick Play will open one.</p>
+          <p id="lobby-error"></p>
+        </section>
       </div>
       <div id="lobby-room" hidden>
         <p>Room code: <span id="room-code"></span> <button id="copy-link-btn" class="btn-quiet">Copy link</button></p>

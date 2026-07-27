@@ -239,8 +239,20 @@ export class GameScene extends Phaser.Scene {
   private readonly matchEndTitleEl = el<HTMLHeadingElement>("match-end-title");
   private readonly matchEndResultsEl = el<HTMLUListElement>("match-end-results");
   private readonly matchEndRematchBtn = el<HTMLButtonElement>("match-end-rematch-btn");
+  private readonly matchEndExitBtn = el<HTMLButtonElement>("match-end-exit-btn");
   private readonly matchEndNoteEl = el<HTMLParagraphElement>("match-end-note");
+  private readonly pauseEl = el<HTMLDivElement>("pause");
+  private readonly pauseBtn = el<HTMLButtonElement>("pause-btn");
+  private readonly pauseResumeBtn = el<HTMLButtonElement>("pause-resume-btn");
+  private readonly pauseQuitBtn = el<HTMLButtonElement>("pause-quit-btn");
   private readonly debugEl = el<HTMLDivElement>("debug");
+
+  /** UI-only: the authoritative sim never stops, so pausing just takes the player's hands off the controls. */
+  private paused = false;
+  /** Tears the player out of the match entirely; owned by `main.ts`, which holds the room and the game. */
+  private readonly onQuit: () => void;
+  /** Scopes every DOM and window listener this scene adds, so teardown takes all of them in one call. */
+  private readonly domListeners = new AbortController();
 
   /** Latency diagnostics (FR-21), off unless toggled with F3 or opened with `?debug`. */
   private rttMs = 0;
@@ -248,11 +260,12 @@ export class GameScene extends Phaser.Scene {
   private corrections = 0;
   private lastCorrectionPx = 0;
 
-  constructor(room: Room, map: ArenaMap) {
+  constructor(room: Room, map: ArenaMap, onQuit: () => void) {
     super("game");
     this.room = room;
     this.localId = room.sessionId;
     this.map = map;
+    this.onQuit = onQuit;
   }
 
   preload(): void {
@@ -274,9 +287,27 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointermove", this.onPointerMove, this);
     this.input.on("pointerup", this.onPointerUp, this);
 
-    this.matchEndRematchBtn.addEventListener("click", () => this.room.send("rematch"));
-    this.hudOugiBtn.addEventListener("click", () => this.fireOugi());
+    // Every DOM listener below outlives the canvas, so each one is scoped to the teardown signal.
+    const signal = this.domListeners.signal;
+    this.matchEndRematchBtn.addEventListener("click", () => this.room.send("rematch"), { signal });
+    this.matchEndExitBtn.addEventListener("click", () => this.quit(), { signal });
+    this.hudOugiBtn.addEventListener("click", () => this.fireOugi(), { signal });
+    this.pauseBtn.addEventListener("click", () => this.togglePause(), { signal });
+    this.pauseResumeBtn.addEventListener("click", () => this.setPaused(false), { signal });
+    this.pauseQuitBtn.addEventListener("click", () => this.quit(), { signal });
     this.input.keyboard?.on("keydown-SPACE", () => this.fireOugi());
+
+    // Esc goes on the window rather than Phaser's keyboard plugin: the menu has to open even when focus sits
+    // on a DOM button (the ougi button, the pause button itself) instead of the canvas.
+    window.addEventListener(
+      "keydown",
+      (event: KeyboardEvent) => {
+        if (event.key === "Escape") this.togglePause();
+      },
+      { signal },
+    );
+    // Covers the teardown paths that don't come through `quit()` — a rematch-less destroy, or a hot reload.
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.teardownUi());
 
     this.room.onMessage("pong", (sentAt: number) => {
       this.rttMs = performance.now() - sentAt;
@@ -676,7 +707,55 @@ export class GameScene extends Phaser.Scene {
 
   /** The frozen arena reads as playable, so every input path checks the phase rather than trusting the overlay. */
   private acceptingInput(): boolean {
-    return this.state().phase === "playing";
+    return this.state().phase === "playing" && !this.paused;
+  }
+
+  /** Esc and the menu button both land here; the match-end overlay owns the screen once the fight is over. */
+  private togglePause(): void {
+    if (this.state().phase === "finished") return;
+    this.setPaused(!this.paused);
+  }
+
+  /**
+   * Pause is a UI state and nothing more — the authoritative sim runs on, and so does the local prediction, so
+   * the arena is still true when the menu closes. All it does is take input away and put a modal over it.
+   */
+  private setPaused(paused: boolean): void {
+    this.paused = paused;
+    this.pauseEl.hidden = !paused;
+    this.pauseBtn.setAttribute("aria-expanded", String(paused));
+    if (!paused) return;
+
+    // A drag left hanging under the modal would still be charging TP, and would fire a dash on the release
+    // that dismisses it — so opening the menu ends the gesture the same way a release does.
+    this.awayTapArmed = false;
+    if (!this.dragging) return;
+    this.dragging = false;
+    this.aimGfx.clear();
+    const ninja = this.localNinja();
+    if (ninja) ninja.charging = false;
+    this.room.send("charge", { active: false });
+  }
+
+  /** Leaves the match for the home screen. `main.ts` owns the room and the game, so it does the actual teardown. */
+  private quit(): void {
+    this.setPaused(false);
+    this.teardownUi();
+    this.onQuit();
+  }
+
+  /**
+   * Puts every DOM surface this scene drives back the way it found it, and drops its listeners. Idempotent:
+   * `quit()` calls it before the game is destroyed so the overlays vanish on the same frame, and the scene's
+   * own destroy event calls it again for the paths that skip `quit()`.
+   */
+  private teardownUi(): void {
+    this.domListeners.abort();
+    this.hudEl.hidden = true;
+    this.countdownEl.hidden = true;
+    this.matchEndEl.hidden = true;
+    this.pauseEl.hidden = true;
+    this.debugEl.hidden = true;
   }
 
   /** Ougis run server-side only — nothing is predicted locally, so the effect lands a round trip later. */
@@ -830,6 +909,9 @@ export class GameScene extends Phaser.Scene {
     const state = this.state();
     const finished = state.phase === "finished";
     this.matchEndEl.hidden = !finished;
+    // The results own the screen once the fight is over, and they already offer the way out the menu did.
+    this.pauseBtn.hidden = finished;
+    if (finished && this.paused) this.setPaused(false);
     if (!finished) return;
 
     const isHost = state.players.get(this.localId)?.isHost ?? false;

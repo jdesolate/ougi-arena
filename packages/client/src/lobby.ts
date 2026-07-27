@@ -75,8 +75,13 @@ async function tryReconnect(): Promise<Room | null> {
   }
 }
 
+export interface LobbyHandle {
+  /** Returns the page to the landing view after a match is torn down, ready for a fresh join. */
+  reset(): void;
+}
+
 /** Runs the pre-match lobby (create/join by link code, nickname, host start, spectate). Calls `onStart` once the match begins. */
-export function initLobby(onStart: (room: Room) => void): void {
+export function initLobby(onStart: (room: Room) => void): LobbyHandle {
   const lobbyEl = el<HTMLDivElement>("lobby");
   const formEl = el<HTMLDivElement>("lobby-form");
   const roomEl = el<HTMLDivElement>("lobby-room");
@@ -143,6 +148,8 @@ export function initLobby(onStart: (room: Room) => void): void {
 
   /** Cards are cheap to keep in sync, so everyone sees the choice; only the host can change it. */
   const mapCards = new Map<string, HTMLButtonElement>();
+  /** Scopes the listeners `enterRoom` adds to one room, so quitting and joining again can't double-register them. */
+  let roomListeners: AbortController | null = null;
 
   function renderMap(mapId: string, isHost: boolean): void {
     for (const [id, card] of mapCards) {
@@ -153,6 +160,10 @@ export function initLobby(onStart: (room: Room) => void): void {
   }
 
   function buildMapCards(room: Room): void {
+    // Cards are bound to a specific room's `send`, so a second visit rebuilds them rather than reusing them.
+    mapSelectEl.innerHTML = "";
+    mapCards.clear();
+
     for (const map of ARENAS) {
       const card = document.createElement("button");
       card.type = "button";
@@ -279,12 +290,42 @@ export function initLobby(onStart: (room: Room) => void): void {
     // Keep the query string: the room code goes in the path, but `?debug` has to survive into the match.
     history.replaceState(null, "", `/r/${room.roomId}${window.location.search}`);
 
+    roomListeners?.abort();
+    roomListeners = new AbortController();
+    const signal = roomListeners.signal;
+
     buildMapCards(room);
     room.onStateChange(() => renderPlayers(room));
-    startBtn.addEventListener("click", () => room.send("start"));
-    copyLinkBtn.addEventListener("click", () => {
-      void navigator.clipboard.writeText(window.location.href);
-    });
+    startBtn.addEventListener("click", () => room.send("start"), { signal });
+    copyLinkBtn.addEventListener(
+      "click",
+      () => {
+        void navigator.clipboard.writeText(window.location.href);
+      },
+      { signal },
+    );
+  }
+
+  /**
+   * The way back from a match: forget the room we were in and show the landing page as if it had just loaded.
+   * The room itself is already gone by the time this runs — `main.ts` leaves it and destroys the game first.
+   */
+  function reset(): void {
+    roomListeners?.abort();
+    roomListeners = null;
+    matchStarted = false;
+    // A deliberate quit must not leave a token behind that a reload would use to crawl back into the room.
+    localStorage.removeItem(RECONNECT_STORAGE_KEY);
+
+    roomEl.hidden = true;
+    formEl.hidden = false;
+    lobbyEl.hidden = false;
+    playerListEl.innerHTML = "";
+    showError("");
+    history.replaceState(null, "", `/${window.location.search}`);
+    joinCodeInput.value = "";
+
+    startRoomListPolling();
   }
 
   /** Character select: a card per ninja, showing the sprite in that character's colour and the Ougi it brings. */
@@ -400,14 +441,21 @@ export function initLobby(onStart: (room: Room) => void): void {
     return colyseusClient.create(ARENA_ROOM_NAME, { ...joinOptions(), isPrivate: false });
   }
 
+  /** Polling runs only while the landing page is up: `enterRoom` stops it, and `reset` starts it again. */
+  let roomListTimer = 0;
+  function startRoomListPolling(): void {
+    window.clearInterval(roomListTimer);
+    roomListTimer = window.setInterval(() => void refreshRoomList(), ROOM_LIST_POLL_MS);
+    void refreshRoomList();
+  }
+
   const codeFromUrl = matchRoomCodeInPath(window.location.pathname);
   if (codeFromUrl) joinCodeInput.value = codeFromUrl;
 
   // Warm the server while the player is still picking a ninja, so Quick Play doesn't eat the cold start.
   void wakeServer(setWaking).then(() => void refreshRoomList());
 
-  const roomListTimer = window.setInterval(() => void refreshRoomList(), ROOM_LIST_POLL_MS);
-  void refreshRoomList();
+  startRoomListPolling();
 
   quickPlayBtn.addEventListener("click", () => {
     showError("");
@@ -448,4 +496,6 @@ export function initLobby(onStart: (room: Room) => void): void {
   void tryReconnect().then((room) => {
     if (room) enterRoom(room);
   });
+
+  return { reset };
 }

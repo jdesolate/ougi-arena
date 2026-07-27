@@ -715,6 +715,17 @@ body {
   padding: 4px 10px;
   font-size: 0.85rem;
 }
+/* The way out, parked opposite the timer capsule so it's never mistaken for a combat control. */
+#pause-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 6px 12px;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 
 /* ---- Match end ---------------------------------------------------------- */
 
@@ -778,7 +789,9 @@ body {
   color: var(--ember-light);
 }
 
-#match-end {
+/* Both full-screen modals share one vocabulary: same scrim, same framed panel, same display title. */
+#match-end,
+#pause {
   position: fixed;
   inset: 0;
   display: flex;
@@ -786,13 +799,27 @@ body {
   justify-content: center;
   background: rgba(0, 0, 0, 0.7);
 }
-#match-end-panel {
+#match-end-panel,
+#pause-panel {
   padding: 24px 32px;
   min-width: 280px;
   text-align: center;
 }
+/* One primary action stacked over the quiet way out, so "leave" is never the button under your thumb. */
+.overlay-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+#pause-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
 /* Matches the section-label treatment used everywhere else, so the modal reads as part of the same system. */
-#match-end-title {
+#match-end-title,
+#pause-title {
   font-family: var(--font-display);
   font-size: 1.8rem;
   font-weight: normal;
@@ -909,10 +936,16 @@ body {
     font-size: 0.8rem;
     gap: 4px 14px;
   }
-  #match-end-panel {
+  #match-end-panel,
+  #pause-panel {
     min-width: 0;
     width: min(90vw, 320px);
     padding: 20px;
+  }
+  #pause-btn {
+    top: 6px;
+    right: 6px;
+    min-height: 44px;
   }
   #debug {
     font-size: 0.65rem;

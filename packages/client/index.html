@@ -87,7 +87,18 @@
         </div>
         <button id="hud-ougi-btn" class="btn-arcade" disabled>Ougi</button>
       </div>
+      <button id="pause-btn" class="btn-quiet" aria-label="Pause menu" aria-expanded="false">Menu</button>
       <span id="rotate-note">Turn your phone sideways for a bigger arena.</span>
+    </div>
+    <div id="pause" hidden>
+      <div id="pause-panel" class="panel">
+        <h2 id="pause-title">Paused</h2>
+        <p id="pause-note">The arena keeps fighting — this menu only stops you.</p>
+        <div class="overlay-actions">
+          <button id="pause-resume-btn" class="btn-arcade">Resume</button>
+          <button id="pause-quit-btn" class="btn-quiet">Quit to home</button>
+        </div>
+      </div>
     </div>
     <div id="countdown" hidden>
       <div id="countdown-number">3</div>
@@ -102,7 +113,11 @@
       <div id="match-end-panel" class="panel">
         <h2 id="match-end-title">Match over</h2>
         <ul id="match-end-results"></ul>
-        <button id="match-end-rematch-btn" class="btn-arcade" hidden>Rematch</button>
+        <div class="overlay-actions">
+          <button id="match-end-rematch-btn" class="btn-arcade" hidden>Rematch</button>
+          <!-- Everyone gets a way out, host or not: the rematch button is the host's, this one is the room's. -->
+          <button id="match-end-exit-btn" class="btn-quiet">Exit to main menu</button>
+        </div>
         <p id="match-end-note" hidden>Waiting for the host to start a rematch…</p>
       </div>
     </div>

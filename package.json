@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "pnpm@9.9.0",
   "scripts": {
     "dev": "pnpm --parallel --filter ./packages/server --filter ./packages/client run dev",
     "build": "pnpm --recursive run build",

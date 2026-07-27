@@ -2,6 +2,7 @@ import type { Room } from "colyseus.js";
 import { ARENAS, CHARACTERS, WEAPONS, ougiForCharacter, weaponFor } from "@ougi-arena/shared";
 import { ARENA_ROOM_NAME, colyseusClient } from "./network/colyseus.js";
 import { fetchRooms, isJoinable, type RoomListing } from "./network/rooms.js";
+import { resetWake, wakeServer } from "./network/wake.js";
 import { playUiSfx } from "./audio/sfx.js";
 import { skinFor } from "./skins.js";
 import { drawPortrait } from "./ui/portrait.js";
@@ -87,12 +88,33 @@ export function initLobby(onStart: (room: Room) => void): void {
   const quickPlayBtn = el<HTMLButtonElement>("quick-play-btn");
   const roomListEl = el<HTMLUListElement>("room-list");
   const roomListEmptyEl = el<HTMLParagraphElement>("room-list-empty");
+  const wakingNoteEl = el<HTMLParagraphElement>("waking-note");
 
   // Guards against `onStart` re-firing: once playing, state syncs ~30x/sec and each change re-renders.
   let matchStarted = false;
+  let serverWaking = false;
 
   function showError(message: string): void {
     errorEl.textContent = message;
+  }
+
+  /** Free-tier hosting sleeps when idle, so a first visit can wait ~30–60s; say so rather than looking broken. */
+  function setWaking(waking: boolean): void {
+    serverWaking = waking;
+    wakingNoteEl.hidden = !waking;
+    if (waking) roomListEmptyEl.hidden = true;
+  }
+
+  /** Every join path goes through here: a sleeping server would fail the connection outright. */
+  async function withServerAwake<T>(join: () => Promise<T>): Promise<T> {
+    await wakeServer(setWaking);
+    try {
+      return await join();
+    } catch (error) {
+      // The instance may have slept again since the last ping; let the next attempt re-check rather than cache "up".
+      resetWake();
+      throw error;
+    }
   }
 
   /** Cards are cheap to keep in sync, so everyone sees the choice; only the host can change it. */
@@ -252,7 +274,7 @@ export function initLobby(onStart: (room: Room) => void): void {
   async function refreshRoomList(): Promise<void> {
     const rooms = await fetchRooms();
     roomListEl.innerHTML = "";
-    roomListEmptyEl.hidden = rooms.length > 0;
+    roomListEmptyEl.hidden = rooms.length > 0 || serverWaking;
 
     for (const room of rooms) {
       const li = document.createElement("li");
@@ -265,8 +287,7 @@ export function initLobby(onStart: (room: Room) => void): void {
       joinRoomBtn.textContent = "Join";
       joinRoomBtn.addEventListener("click", () => {
         showError("");
-        colyseusClient
-          .joinById(room.roomId, joinOptions())
+        withServerAwake(() => colyseusClient.joinById(room.roomId, joinOptions()))
           .then(enterRoom)
           .catch(() => showError("That room is no longer joinable."));
       });
@@ -281,6 +302,7 @@ export function initLobby(onStart: (room: Room) => void): void {
    * the same instant can race for the last slot, so a failed join just falls through to the next candidate.
    */
   async function quickPlay(): Promise<Room> {
+    await wakeServer(setWaking);
     const candidates = (await fetchRooms()).filter(isJoinable).sort(byFullest);
 
     for (const room of candidates) {
@@ -297,6 +319,9 @@ export function initLobby(onStart: (room: Room) => void): void {
   const codeFromUrl = matchRoomCodeInPath(window.location.pathname);
   if (codeFromUrl) joinCodeInput.value = codeFromUrl;
 
+  // Warm the server while the player is still picking a ninja, so Quick Play doesn't eat the cold start.
+  void wakeServer(setWaking).then(() => void refreshRoomList());
+
   const roomListTimer = window.setInterval(() => void refreshRoomList(), ROOM_LIST_POLL_MS);
   void refreshRoomList();
 
@@ -305,7 +330,10 @@ export function initLobby(onStart: (room: Room) => void): void {
     quickPlayBtn.disabled = true;
     quickPlay()
       .then(enterRoom)
-      .catch(() => showError("Could not find or create a room. Is the server running?"))
+      .catch(() => {
+        resetWake();
+        showError("Could not find or create a room. Is the server running?");
+      })
       .finally(() => {
         quickPlayBtn.disabled = false;
       });
@@ -313,8 +341,9 @@ export function initLobby(onStart: (room: Room) => void): void {
 
   createBtn.addEventListener("click", () => {
     showError("");
-    colyseusClient
-      .create(ARENA_ROOM_NAME, { ...joinOptions(), isPrivate: privateToggle.checked })
+    withServerAwake(() =>
+      colyseusClient.create(ARENA_ROOM_NAME, { ...joinOptions(), isPrivate: privateToggle.checked }),
+    )
       .then(enterRoom)
       .catch(() => showError("Could not create a room. Is the server running?"));
   });
@@ -327,8 +356,7 @@ export function initLobby(onStart: (room: Room) => void): void {
       return;
     }
 
-    colyseusClient
-      .joinById(code, joinOptions())
+    withServerAwake(() => colyseusClient.joinById(code, joinOptions()))
       .then(enterRoom)
       .catch(() => showError("Could not join that room — check the code."));
   });

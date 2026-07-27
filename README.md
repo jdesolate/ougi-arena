@@ -2,7 +2,7 @@
 
 A real-time multiplayer browser brawler inspired by the classic slingshot ninja game *Nindou*. Chibi ninjas slingshot-dash around a destructible arena in 2-minute free-for-all matches, charging their ultimate move — their **Ougi** — by dealing damage.
 
-> **Status: pre-development.** Design and planning are complete; implementation has not started. See the roadmap below.
+> **Status: in development.** The game is playable end to end — rooms, bots, three arenas, Ougis and weapons all work. Deploy config is in place; see [docs/deploy.md](docs/deploy.md).
 
 ## What it is
 
@@ -31,14 +31,14 @@ Under the hood it still has an interesting engine: a hand-rolled deterministic f
 
 ## Development
 
-> Setup instructions will land with the first scaffold (session S1). Planned shape:
-
 ```bash
 pnpm install
 pnpm dev        # client (Vite) + Colyseus server with hot reload
 pnpm test       # simulation unit tests
 pnpm typecheck && pnpm lint
 ```
+
+No env vars are needed locally: the client falls back to `ws://localhost:2567` and the server allows any origin. For deployment — Render + Cloudflare Pages, and the two env vars that connect them — see [docs/deploy.md](docs/deploy.md).
 
 ## Roadmap
 

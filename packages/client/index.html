@@ -13,6 +13,14 @@
         background: #1a1a2e;
         color: #eee;
         font-family: system-ui, sans-serif;
+        /* Kills the 300ms double-tap delay on touch without taking pinch-zoom away from the player. */
+        touch-action: manipulation;
+        overscroll-behavior: none;
+      }
+      /* The arena is a drag surface: a pull-back gesture must not scroll or rubber-band the page under it. */
+      #app canvas {
+        touch-action: none;
+        display: block;
       }
       #lobby {
         max-width: 420px;
@@ -21,6 +29,14 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+      }
+      #waking-note {
+        margin: 0;
+        padding: 8px 12px;
+        border-radius: 4px;
+        background: #2c2c50;
+        color: #ffd166;
+        font-size: 0.9rem;
       }
       #lobby input[type="text"],
       #lobby input:not([type]) {
@@ -258,11 +274,67 @@
         color: #ffd166;
         font-weight: bold;
       }
+
+      /* A 15x8 arena letterboxes to a sliver in portrait, so nudge — but only where it applies. */
+      #rotate-note {
+        display: none;
+        flex-basis: 100%;
+        color: #ffd166;
+        font-size: 0.75rem;
+      }
+      @media (max-width: 520px) and (orientation: portrait) {
+        #rotate-note {
+          display: block;
+        }
+      }
+
+      /* Light mobile pass: the lobby is a single column already, so it mostly needs room to breathe and
+         thumb-sized targets; the HUD is the one row that genuinely doesn't fit a phone at desktop sizing. */
+      @media (max-width: 520px) {
+        #lobby {
+          margin: 16px auto;
+          padding: 16px;
+        }
+        #lobby h1 {
+          font-size: 1.5rem;
+          margin: 0;
+        }
+        #lobby button {
+          min-height: 44px;
+        }
+        #lobby input[type="text"],
+        #lobby input:not([type]) {
+          /* Under 16px, iOS Safari zooms the page on focus and never zooms back out. */
+          font-size: 16px;
+        }
+        #hud {
+          flex-wrap: wrap;
+          gap: 8px;
+          padding: 6px 10px;
+          font-size: 0.8rem;
+        }
+        .meter-bar {
+          width: 64px;
+        }
+        #hud-scoreboard {
+          flex-basis: 100%;
+          gap: 10px;
+        }
+        #match-end-panel {
+          min-width: 0;
+          width: min(90vw, 320px);
+          padding: 20px;
+        }
+        #debug {
+          font-size: 0.65rem;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="lobby">
       <h1>Ougi Arena</h1>
+      <p id="waking-note" hidden>Waking the dojo… the free server sleeps when idle, this takes up to a minute.</p>
       <div id="lobby-form">
         <input id="nickname-input" type="text" placeholder="Nickname" maxlength="16" />
         <h2>Choose your ninja</h2>
@@ -302,6 +374,7 @@
       <div class="meter-bar"><div id="hud-weapon-fill" class="meter-fill" style="width: 100%"></div></div>
       <button id="hud-ougi-btn" disabled>Ougi</button>
       <ul id="hud-scoreboard"></ul>
+      <span id="rotate-note">Turn your phone sideways for a bigger arena.</span>
     </div>
     <div id="match-end" hidden>
       <div id="match-end-panel">

@@ -1,0 +1,19 @@
+# Render blueprint for the Colyseus server. The client is deployed separately on Cloudflare Pages —
+# see docs/deploy.md. Free-tier instances sleep after ~15 min idle; the client's wake ping covers that.
+services:
+  - type: web
+    name: ougi-arena-server
+    runtime: node
+    plan: free
+    region: oregon
+    # pnpm workspace: install from the repo root, then bundle just the server (which inlines `shared`).
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @ougi-arena/server build
+    startCommand: pnpm --filter @ougi-arena/server start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Comma-separated Pages origins allowed to connect. Set this after the client's URL exists;
+      # leaving it unset means any origin can reach the server.
+      - key: ALLOWED_ORIGINS
+        sync: false

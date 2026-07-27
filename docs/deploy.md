@@ -1,13 +1,13 @@
 # Deploy
 
-Two free services: the Colyseus server on **Render**, the Phaser client on **Cloudflare Pages**. Total cost $0/month.
+Two free services: the Colyseus server on **Render**, the Phaser client on **Cloudflare** (Workers static assets, or Pages). Total cost $0/month.
 
 The two are deployed independently and only know about each other through two env vars:
 
 | Where | Variable | Value |
 |-------|----------|-------|
-| Cloudflare Pages | `VITE_SERVER_URL` | the Render service URL, e.g. `wss://ougi-arena-server.onrender.com` |
-| Render | `ALLOWED_ORIGINS` | the Pages origin, e.g. `https://ougi-arena.pages.dev` |
+| Cloudflare | `VITE_SERVER_URL` | the Render service URL, e.g. `wss://ougi-arena-server.onrender.com` |
+| Render | `ALLOWED_ORIGINS` | the client origin, e.g. `https://ougi-arena.<subdomain>.workers.dev` |
 
 That's a chicken-and-egg pair, so deploy the server first, then the client, then come back and set `ALLOWED_ORIGINS`.
 
@@ -39,28 +39,40 @@ Expect `{"status":"ok"}`. `/rooms` should return `[]`.
 
 > **Why the build bundles instead of `tsc`.** `@ougi-arena/shared` is consumed as TypeScript source (its `main` points at `src/index.ts`), which every other consumer — vitest, tsx, Vite — handles natively. Plain `tsc` output would keep a bare `@ougi-arena/shared` import that Node can't resolve at runtime, so the server build runs esbuild instead and inlines `shared` into one file. Colyseus stays external and is resolved from `node_modules` as normal.
 
-## 2. Client on Cloudflare Pages
+## 2. Client on Cloudflare
 
-Pages → *Create a project* → *Connect to Git* → pick this repo:
+Cloudflare now steers repo imports into **Workers Builds** (a static-asset Worker) rather than classic Pages. Both work; the Workers path is what this repo is configured for.
 
-- **Framework preset:** None
+Workers & Pages → *Import a repository* → pick this repo:
+
+- **Root directory:** `/`
 - **Build command:** `corepack enable && pnpm install --frozen-lockfile && pnpm --filter @ougi-arena/client build`
-- **Build output directory:** `packages/client/dist`
-- **Environment variable:** `VITE_SERVER_URL` = `wss://<your-service>.onrender.com`
+- **Deploy command:** `npx wrangler deploy --config wrangler.jsonc`
+- **Build variable:** `VITE_SERVER_URL` = `wss://<your-service>.onrender.com`
 
-`VITE_SERVER_URL` is inlined at build time, so changing it later needs a fresh deploy, not just a settings save.
+Two things bite here:
 
-[`packages/client/public/_redirects`](../packages/client/public/_redirects) is already in the repo — it makes Pages serve the app shell for `/r/<code>` room links instead of 404ing.
+- **The deploy command needs `--config`.** Plain `npx wrangler deploy` fails at the root of a pnpm workspace with *"The Cloudflare application detection logic has been run in the root of a workspace instead of targeting a specific project"* — wrangler won't guess which package to deploy. [`wrangler.jsonc`](../wrangler.jsonc) names it explicitly, pointing `assets.directory` at `packages/client/dist` with `not_found_handling: "single-page-application"` so `/r/<code>` room links serve the app shell instead of 404ing.
+- **`name` in `wrangler.jsonc` must match your Worker's name.** It's `ougi-arena` in the repo; a mismatch silently creates a *second* Worker rather than updating the one the dashboard is showing you.
+
+`VITE_SERVER_URL` must be set as a **build** variable, not a runtime one — Vite inlines it into the bundle at build time, so a client built without it ships pointing at `ws://localhost:2567` and will never connect. Changing it later needs a fresh build, not just a settings save.
+
+<details>
+<summary>Classic Pages instead</summary>
+
+If you'd rather use Pages: build command and output directory as above (`packages/client/dist`), no deploy command, and [`packages/client/public/_redirects`](../packages/client/public/_redirects) handles the room-link routing. Or deploy from a Workers build with `npx wrangler pages deploy packages/client/dist --project-name=ougi-arena`, which sidesteps the workspace-detection problem without a config file.
+
+</details>
 
 ## 3. Lock the server down to the client's origin
 
-Back on Render, set `ALLOWED_ORIGINS` to the Pages origin and redeploy:
+Back on Render, set `ALLOWED_ORIGINS` to the client's origin and redeploy:
 
 ```
-ALLOWED_ORIGINS=https://ougi-arena.pages.dev
+ALLOWED_ORIGINS=https://ougi-arena.<subdomain>.workers.dev
 ```
 
-Add any other origins you use, comma-separated — a custom domain, or `http://localhost:5173` if you want a local client to talk to the deployed server. Note that Pages gives every branch/commit a preview subdomain; those origins are *not* covered by the production hostname, so either add them explicitly or accept that previews can't reach the server.
+Add any other origins you use, comma-separated — a custom domain, or `http://localhost:5173` if you want a local client to talk to the deployed server. Note that Cloudflare gives preview builds their own subdomains; those origins are *not* covered by the production hostname, so either add them explicitly or accept that previews can't reach the server.
 
 The allowlist is enforced in two places (both in [`packages/server/src/index.ts`](../packages/server/src/index.ts)): CORS headers on `/rooms` and `/health`, and — because CORS doesn't apply to WebSockets — an origin check at the socket handshake, which rejects a disallowed origin with a 401. Requests with no `Origin` header at all (curl, Render's health check) are allowed through, since CORS is a browser-enforced policy and blocking them would just break monitoring.
 
@@ -74,7 +86,7 @@ Upgrading to Render's $7/mo tier removes cold starts entirely; nothing in the co
 
 Against the deployed pair, in a browser:
 
-1. Load the Pages URL — no console errors, the lobby renders.
+1. Load the client URL — no console errors, the lobby renders.
 2. Room list loads (empty is fine) — confirms CORS is right.
 3. Quick Play creates a room and starts a match against bots.
 4. Copy the room link, open it in a second browser/device, join, and confirm both see each other move.

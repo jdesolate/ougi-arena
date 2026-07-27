@@ -1,0 +1,12 @@
+{
+  // Static-asset Worker for the Phaser client. Explicit config because wrangler's app detection refuses to
+  // guess at the root of a pnpm workspace — deploy with `npx wrangler deploy --config wrangler.jsonc`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ougi-arena",
+  "compatibility_date": "2025-06-01",
+  "assets": {
+    "directory": "./packages/client/dist",
+    // Room links (`/r/<code>`) are client-side routes, not files, so unmatched paths serve the app shell.
+    "not_found_handling": "single-page-application"
+  }
+}

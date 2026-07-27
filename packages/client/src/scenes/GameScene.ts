@@ -65,7 +65,7 @@ const MAX_STEPS_PER_FRAME = 5;
 
 /** Generous grab radius so the drag doesn't need pixel-perfect precision on the ninja. */
 const GRAB_RADIUS = NINJA_RADIUS * 2.5;
-/** A release within this many world units of the press point reads as a tap (swing) rather than a drag (dash). */
+/** A release within this many world units of the press point on your own ninja is too small to count as a dash. */
 const TAP_DRAG_THRESHOLD = 10;
 /**
  * No dedicated swing SFX is shipped yet (S15 adds no new audio assets) — "wall" (a light impact) is the
@@ -184,6 +184,8 @@ export class GameScene extends Phaser.Scene {
   private dragging = false;
   private pointerX = 0;
   private pointerY = 0;
+  /** Set on a press outside the grab radius; the matching release swings toward that point instead of dashing. */
+  private awayTapArmed = false;
 
   private worldGfx!: Phaser.GameObjects.Graphics;
   /** Drawn above the ninja sprites: HP bars and the Ougi aura. */
@@ -565,15 +567,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Tap-to-swing: a release with no real drag attacks in the ninja's current facing instead of dashing. */
-  private tryAttack(): void {
+  /** Aimed swing: a tap away from your own ninja swings toward that point, snapped to the nearest cardinal axis. */
+  private tryAttack(dirX: number, dirY: number): void {
     const ninja = this.localNinja();
     const mine = this.serverNinja();
     if (!ninja || !ninja.active || !mine || mine.attackCooldown > 0) return;
 
-    // A zero direction tells the server to swing wherever the ninja already faces — no aim needed for a tap.
-    this.room.send("attack", { dirX: 0, dirY: 0 });
-    this.weaponEffect(this.localId, mine.weaponId, ninja.x, ninja.y, mine.facingX, mine.facingY);
+    const dir = snapToCardinal(dirX, dirY);
+    this.room.send("attack", { dirX, dirY });
+    this.weaponEffect(this.localId, mine.weaponId, ninja.x, ninja.y, dir.x, dir.y);
   }
 
   /** Ougis run server-side only — nothing is predicted locally, so the effect lands a round trip later. */
@@ -784,7 +786,12 @@ export class GameScene extends Phaser.Scene {
     if (!ninja || !ninja.active) return;
 
     const dist = lengthOf(pointer.worldX - ninja.x, pointer.worldY - ninja.y);
-    if (dist > GRAB_RADIUS) return;
+    if (dist > GRAB_RADIUS) {
+      // Press landed away from your own ninja — the release below aims a swing instead of grabbing for a dash.
+      this.awayTapArmed = true;
+      return;
+    }
+    this.awayTapArmed = false;
 
     this.dragging = true;
     this.pointerX = pointer.worldX;
@@ -801,7 +808,14 @@ export class GameScene extends Phaser.Scene {
     this.pointerY = pointer.worldY;
   }
 
-  private onPointerUp(): void {
+  private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (this.awayTapArmed) {
+      this.awayTapArmed = false;
+      const ninja = this.localNinja();
+      if (ninja) this.tryAttack(pointer.worldX - ninja.x, pointer.worldY - ninja.y);
+      return;
+    }
+
     if (!this.dragging) return;
     this.dragging = false;
     this.aimGfx.clear();
@@ -815,11 +829,8 @@ export class GameScene extends Phaser.Scene {
     const dragY = this.pointerY - ninja.y;
     const dragDist = lengthOf(dragX, dragY);
 
-    // A release with barely any drag reads as a tap: swing the weapon instead of attempting a dash.
-    if (dragDist < TAP_DRAG_THRESHOLD) {
-      this.tryAttack();
-      return;
-    }
+    // A release with barely any drag on your own ninja is neither an aim nor a dash — nothing happens.
+    if (dragDist < TAP_DRAG_THRESHOLD) return;
 
     // Drag-toward: release launches toward the pointer, 1:1 with drag distance (capped at full range), snapped to an axis.
     const power = clamp(dragDist / maxDashDistanceOf(ninja), 0, 1);

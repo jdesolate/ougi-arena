@@ -123,6 +123,30 @@ body {
   right: 0;
   bottom: var(--hud-bottom-h);
   left: 0;
+  z-index: 0;
+}
+
+/*
+ * Stacking order, and it has to be explicit now. Every overlay is `position: fixed` with an automatic z-index,
+ * so they used to paint in document order over an unpositioned `#app`; the moment `#app` started positioning
+ * itself around the HUD it became the last positioned element in the document and covered all of them. The
+ * arena is the floor of this scale and everything the player reads sits above it, ending with the two modals.
+ */
+#hud {
+  z-index: 10;
+}
+#ougi-banner {
+  z-index: 20;
+}
+#countdown {
+  z-index: 30;
+}
+#match-end,
+#pause {
+  z-index: 40;
+}
+#debug {
+  z-index: 50;
 }
 /* `#app` is `hidden` outside a match (see index.html): the box is fixed and full-bleed, so leaving it up would
    cover the landing page's clicks — and `game.destroy()` is deferred a frame, so it can outlive the match. */

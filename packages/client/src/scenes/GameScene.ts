@@ -49,6 +49,8 @@ import {
   COLOR_FLOOR,
   COLOR_FLOOR_LINE,
   COLOR_FLOOR_TILE,
+  COLOR_LOCAL_ACCENT,
+  COLOR_NAMEPLATE,
   COLOR_OBSTACLE_BROKEN,
   COLOR_OBSTACLE_EDGE,
   COLOR_OBSTACLE_FRESH,
@@ -62,6 +64,7 @@ import {
   SHADOW_ALPHA,
   SHADOW_OFFSET_X,
   SHADOW_OFFSET_Y,
+  cssHex,
 } from "../world-palette.js";
 
 const SIM_DT_MS = SIM_DT * 1000;
@@ -238,6 +241,8 @@ export class GameScene extends Phaser.Scene {
   private readonly recentOugi = new Map<string, number>();
 
   private readonly hudEl = el<HTMLDivElement>("hud");
+  private readonly hudTopEl = el<HTMLDivElement>("hud-top");
+  private readonly hudBottomEl = el<HTMLDivElement>("hud-bottom");
   private readonly hudTimerEl = el<HTMLSpanElement>("hud-timer");
   private readonly hudAliveEl = el<HTMLSpanElement>("hud-alive");
   private readonly hudHpFillEl = el<HTMLDivElement>("hud-hp-fill");
@@ -277,6 +282,8 @@ export class GameScene extends Phaser.Scene {
   private readonly onQuit: () => void;
   /** Scopes every DOM and window listener this scene adds, so teardown takes all of them in one call. */
   private readonly domListeners = new AbortController();
+  /** Watches the HUD's own height so the arena can be sized around it; see `syncHudInsets`. */
+  private hudResize: ResizeObserver | null = null;
 
   /** Latency diagnostics (FR-21), off unless toggled with F3 or opened with `?debug`. */
   private rttMs = 0;
@@ -348,6 +355,7 @@ export class GameScene extends Phaser.Scene {
     if (new URLSearchParams(window.location.search).has("debug")) this.toggleDebug();
 
     this.hudEl.hidden = false;
+    this.trackHudInsets();
     this.room.onStateChange(() => this.onServerState());
 
     this.onServerState();
@@ -824,7 +832,16 @@ export class GameScene extends Phaser.Scene {
     this.paused = paused;
     this.pauseEl.hidden = !paused;
     this.pauseBtn.setAttribute("aria-expanded", String(paused));
-    if (!paused) return;
+    // A modal that leaves the screen behind it tabbable isn't really modal: `inert` takes the whole HUD out of
+    // the tab order and off the pointer, so Tab can't reach the ougi button under the panel. The pause button
+    // lives in there too, but Resume and Esc both still close the menu.
+    this.hudEl.inert = paused;
+    if (!paused) {
+      this.pauseBtn.focus();
+      return;
+    }
+    // Moves the keyboard into the modal, so the first Tab starts inside it rather than wherever focus was left.
+    this.pauseResumeBtn.focus();
 
     // A drag left hanging under the modal would still be charging TP, and would fire a dash on the release
     // that dismisses it — so opening the menu ends the gesture the same way a release does.
@@ -845,12 +862,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * The HUD is chrome the arena has to fit around, not decoration over it — the bottom bar is opaque, so
+   * anything under it is simply gone. Both pieces are measured rather than assumed a fixed height: the bar
+   * wraps to two rows on a narrow phone and both shrink at the mobile breakpoint. A `ResizeObserver` covers
+   * those, and a window resize covers the breakpoint itself moving the top capsule without resizing it.
+   */
+  private trackHudInsets(): void {
+    this.hudResize = new ResizeObserver(() => this.syncHudInsets());
+    this.hudResize.observe(this.hudTopEl);
+    this.hudResize.observe(this.hudBottomEl);
+    window.addEventListener("resize", () => this.syncHudInsets(), { signal: this.domListeners.signal });
+    this.syncHudInsets();
+  }
+
+  private syncHudInsets(): void {
+    const root = document.documentElement.style;
+    // The top capsule floats below the viewport edge, so what it costs the arena is its bottom edge, not its
+    // height; the bottom bar is docked flush, so there its height is the whole story.
+    root.setProperty("--hud-top-h", `${Math.ceil(this.hudTopEl.getBoundingClientRect().bottom)}px`);
+    root.setProperty("--hud-bottom-h", `${Math.ceil(this.hudBottomEl.getBoundingClientRect().height)}px`);
+    // Phaser only polls its parent's size twice a second, which would leave the arena visibly wrong-sized for
+    // the first moments of a match; refreshing here re-fits it on the same frame the HUD appears.
+    this.scale.refresh();
+  }
+
+  /**
    * Puts every DOM surface this scene drives back the way it found it, and drops its listeners. Idempotent:
    * `quit()` calls it before the game is destroyed so the overlays vanish on the same frame, and the scene's
    * own destroy event calls it again for the paths that skip `quit()`.
    */
   private teardownUi(): void {
     this.domListeners.abort();
+    this.hudResize?.disconnect();
+    this.hudResize = null;
+    // Back to a full-viewport `#app`, or the next match would mount into a box sized by the last one's HUD.
+    document.documentElement.style.setProperty("--hud-top-h", "0px");
+    document.documentElement.style.setProperty("--hud-bottom-h", "0px");
+    this.hudEl.inert = false;
     this.hudEl.hidden = true;
     this.countdownEl.hidden = true;
     this.ougiBannerEl.hidden = true;
@@ -1014,6 +1062,9 @@ export class GameScene extends Phaser.Scene {
     // The results own the screen once the fight is over, and they already offer the way out the menu did.
     this.pauseBtn.hidden = finished;
     if (finished && this.paused) this.setPaused(false);
+    // Same reason as the pause modal: the results are modal, so the HUD behind them leaves the tab order.
+    // Re-asserted here because `setPaused` above owns the same flag and runs on a different trigger.
+    this.hudEl.inert = finished || this.paused;
     if (!finished) return;
 
     const isHost = state.players.get(this.localId)?.isHost ?? false;
@@ -1202,7 +1253,7 @@ export class GameScene extends Phaser.Scene {
     );
     const launchX = ninja.x + dir.x * previewLen;
     const launchY = ninja.y + dir.y * previewLen;
-    this.aimGfx.lineStyle(4, 0xffd166, 0.9);
+    this.aimGfx.lineStyle(4, COLOR_LOCAL_ACCENT, 0.9);
     this.aimGfx.lineBetween(ninja.x, ninja.y, launchX, launchY);
 
     // The tile you'll land on, since a dash resolves to a cell centre. Nothing is highlighted when the drag is
@@ -1211,9 +1262,9 @@ export class GameScene extends Phaser.Scene {
     // Only the launch axis is snapped by the sim, so the other one comes from whichever cell the landing is in.
     const tileX = snapToCellCentre(launchX, this.map.grid.originX);
     const tileY = snapToCellCentre(launchY, this.map.grid.originY);
-    this.aimGfx.fillStyle(0xffd166, 0.18);
+    this.aimGfx.fillStyle(COLOR_LOCAL_ACCENT, 0.18);
     this.aimGfx.fillRect(tileX - CELL / 2, tileY - CELL / 2, CELL, CELL);
-    this.aimGfx.lineStyle(2, 0xffd166, 0.85);
+    this.aimGfx.lineStyle(2, COLOR_LOCAL_ACCENT, 0.85);
     this.aimGfx.strokeRect(tileX - CELL / 2, tileY - CELL / 2, CELL, CELL);
   }
 
@@ -1383,7 +1434,7 @@ export class GameScene extends Phaser.Scene {
       const player = state.players.get(serverNinja.id);
       const nameplate = this.nameplateFor(serverNinja.id);
       nameplate.setText(`${player?.nickname ?? "???"}${player?.isBot ? " (bot)" : ""}`);
-      nameplate.setColor(isLocal ? "#ffd166" : "#e8e8e8");
+      nameplate.setColor(cssHex(isLocal ? COLOR_LOCAL_ACCENT : COLOR_NAMEPLATE));
       nameplate.setVisible(true);
       nameplate.setPosition(pos.x, barY - 4);
     }
@@ -1415,7 +1466,7 @@ export class GameScene extends Phaser.Scene {
     if (existing) return existing;
 
     const text = this.add
-      .text(0, 0, "", { fontFamily: "system-ui, sans-serif", fontSize: "12px", color: "#e8e8e8" })
+      .text(0, 0, "", { fontFamily: "system-ui, sans-serif", fontSize: "12px", color: cssHex(COLOR_NAMEPLATE) })
       .setOrigin(0.5, 1)
       .setDepth(DEPTH_OVERLAY);
     this.nameplates.set(ninjaId, text);

@@ -46,6 +46,23 @@ export const COLOR_OBSTACLE_EDGE = 0x0b0f1c;
 /** Ember, not gold: gold now means one thing only (ougi charged / winner), and a spawn tile is neither. */
 export const COLOR_SPAWN = 0xf97316;
 
+/** Outside the letterboxed arena: the page background, so the canvas edge doesn't cut a second colour into it. */
+export const COLOR_LETTERBOX = 0x1a1a2e;
+
+/**
+ * Your own things on the canvas — the aim line, the destination tile, your nameplate — take the same ember the
+ * DOM gives "you act on this". The light step rather than the base one, because the aim line is dragged across
+ * the ember spawn tiles more than anywhere else and has to stay legible over them.
+ */
+export const COLOR_LOCAL_ACCENT = 0xfdba74;
+/** Everyone else's nameplate: plain and cool, so the ember one is the only warm name on screen. */
+export const COLOR_NAMEPLATE = 0xe8e8e8;
+
+/** Phaser graphics take numbers and Phaser text takes CSS strings; one palette, spelled both ways. */
+export function cssHex(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
 /**
  * Weapon light. Each swing gets its own colour so you can read what hit you from the flash alone: steel-white
  * for the kunai's thrust, pale ice for the fan's wind, ember-red edged in silver for the longsword's arc.

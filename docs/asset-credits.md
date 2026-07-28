@@ -19,8 +19,21 @@ stop you shipping them, but it does mean the logo may not be an asset you can de
 | `packages/client/public/assets/sprites/ninja.png` | [Roguelike Characters](https://kenney.nl/assets/roguelike-characters) by [Kenney](https://kenney.nl) — one 16x16 frame from the pack's spritesheet, recolored per character at runtime |
 | `packages/client/public/logo.webp`, `favicon.png` | Project brand logo — AI-generated, supplied by the author. Sources kept out of the bundle in `packages/client/brand/`: `logo-source-v2.png` is the shipped design (1024px RGBA, already cut out); `logo-source.png` is the superseded first version. The shipped files are trimmed to the artwork's bounding box and downscaled — no masking needed on v2 |
 
-Weapon icons, map thumbnails, character portraits and every arena texture are drawn in code at runtime
-(`src/ui/weapon-icon.ts`, `src/ui/map-thumb.ts`, `src/ui/portrait.ts`, `src/scenes/GameScene.ts`) — no files to credit.
+Everything else on screen is drawn in code at runtime, so there are no files to credit: weapon icons
+(`src/ui/weapon-icon.ts`), map thumbnails (`src/ui/map-thumb.ts`), character portraits (`src/ui/portrait.ts`),
+the arena's floor/pillar/wall textures (`src/scenes/GameScene.ts`), and every combat effect — per-weapon swing
+shapes, Ougi rings and beams, impact marks, shards and particles (`src/scenes/effects.ts`).
+
+M8's optional AI art swap (S25.5) was deliberately skipped, so the logo below remains the only generated image
+in the project.
+
+## Fonts
+
+| Font | Where | License |
+|---|---|---|
+| [Anton](https://fonts.google.com/specimen/Anton) | `--font-display`: the wordmark fallback, section labels, HUD readouts, overlay titles | [SIL Open Font License 1.1](https://openfontlicense.org) — served from Google Fonts |
+
+Body copy uses the `system-ui` stack, so nothing else is loaded.
 
 ## Audio
 

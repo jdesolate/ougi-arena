@@ -5,14 +5,14 @@ A real-time multiplayer browser brawler inspired by the classic slingshot ninja 
 **▶ Play now:** https://ougi-arena.j-desolate53.workers.dev
 *(Server is on a free tier and sleeps after ~15 min idle — first join can take 30–60s while it wakes up; the client shows a "waking the dojo…" loading state instead of hanging.)*
 
-> **Status: MVP shipped.** Rooms, bots, 3 arenas, 3 Ougis and 3 weapons all work end to end, deployed for $0/month. See [docs/mvp-plan.md](docs/mvp-plan.md) for the full build history and [docs/prd.md](docs/prd.md) for what's next.
+> **Status: shipped, through the M8 visual overhaul.** Rooms, bots, 3 arenas, 3 Ougis and 3 weapons all work end to end, deployed for $0/month. See [docs/mvp-plan.md](docs/mvp-plan.md) and [docs/m8-plan.md](docs/m8-plan.md) for the full build history, and [docs/prd.md](docs/prd.md) for what's next.
 
 ## What it is
 
 - **2–4 player free-for-all** — hit Quick Play, share a room link, or pick from the public room list. No accounts, no installs, just a URL.
 - **Always playable:** AI bots fill empty slots, so a solo visitor gets a real match immediately.
 - **Drag-to-dash movement:** grab your ninja, drag toward where you want to land, release to launch. Dashes cost TP and land exactly on the tile you aimed at; a dash through an enemy shatters them instantly.
-- **Melee weapons:** every ninja also carries a kunai, paper fan, or longsword — tap to swing. Weapons chip HP on a cooldown; only a dash instantly kills, so the two systems pressure each other instead of one making the other pointless.
+- **Melee weapons:** every ninja also carries a kunai, paper fan, or longsword — click away from yourself to swing in that direction. Weapons chip HP on a cooldown; only a dash instantly kills, so the two systems pressure each other instead of one making the other pointless.
 - **Destructible, tile-based arenas:** three hand-authored maps (dense pillar chokes, corner hay pockets, one open field) built on an 80-unit grid — dashes and weapon swings both resolve to exact tiles.
 - **3 Ougis:** each character's ultimate charges from damage dealt — an instant radial shockwave, a 5-second mobility surge, or four cardinal beams that shatter anyone caught in a lane.
 - **2-minute matches:** most KOs at the bell wins; sudden death on ties.
@@ -31,7 +31,7 @@ One TypeScript sim, shared byte-for-byte between an authoritative server and an 
 ```mermaid
 flowchart LR
     subgraph Client["packages/client — Phaser 3 + Vite (Cloudflare Workers)"]
-        Input["Pointer input:\nhold-charge, drag-dash, tap-swing"]
+        Input["Pointer input:\nhold-charge, drag-dash, click-away-swing"]
         Predict["Local prediction sim\n(own ninja only, optimistic launch)"]
         Render["Renderer: snapshot interpolation,\nHUD, particles, camera juice"]
     end
@@ -79,7 +79,7 @@ Full rewind-replay prediction was considered and deliberately skipped (see `docs
 ```bash
 pnpm install
 pnpm dev        # client (Vite) + Colyseus server with hot reload
-pnpm test       # simulation unit tests (106, packages/shared)
+pnpm test       # simulation unit tests (109, packages/shared)
 pnpm typecheck && pnpm lint
 ```
 
@@ -96,6 +96,8 @@ No env vars are needed locally: the client falls back to `ws://localhost:2567` a
 5. **M5** — Juice + art/audio pass, character select screen
 6. **M6** — Drag-toward movement, nameplates, 80-unit arena grid with cell-snapped dashes, 3 authored maps, weapon system + 3 weapons
 7. **M7** — Free-tier deploy (Render + Cloudflare), mobile-lite pass, production smoke test, README + this architecture writeup
+
+**M8 — visual/UX overhaul** (shipped; see [docs/m8-plan.md](docs/m8-plan.md)): a design-token system realigned to the logo's ember-vs-ice arcade look, an arcade HUD with HP/TP/SP gauges, arena faux-depth (tall pillars, cast shadows, textured floor), per-weapon and per-Ougi attack animations with hit feedback, a match-start countdown that teaches the controls, and pause/quit game-loop controls.
 
 **Post-MVP** (see [docs/prd.md](docs/prd.md) for the full PRD and roadmap):
 

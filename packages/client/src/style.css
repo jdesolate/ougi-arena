@@ -66,6 +66,14 @@
 
   /* Heavy condensed face matching the wordmark's weight; body copy stays system-ui. */
   --font-display: "Anton", "Arial Narrow", Impact, sans-serif;
+
+  /*
+   * How much vertical room the HUD takes off the arena. Measured from the live elements by GameScene rather
+   * than hardcoded, because the bottom bar wraps to two rows on a narrow phone — a fixed guess would either
+   * clip the arena or leave a gap. Zero until a match mounts.
+   */
+  --hud-top-h: 0px;
+  --hud-bottom-h: 0px;
 }
 
 [hidden] {
@@ -102,6 +110,22 @@ body {
   touch-action: manipulation;
   overscroll-behavior: none;
 }
+
+/*
+ * The arena lives in the gap the HUD leaves, not under it: the bottom bar is opaque and full-width, so a canvas
+ * sized to the whole viewport hides the arena's bottom row (worst in landscape, where FIT fills the height —
+ * exactly the orientation #rotate-note asks players for). Phaser's FIT measures this parent, so shrinking it
+ * letterboxes the arena into the visible area instead.
+ */
+#app {
+  position: fixed;
+  top: var(--hud-top-h);
+  right: 0;
+  bottom: var(--hud-bottom-h);
+  left: 0;
+}
+/* `#app` is `hidden` outside a match (see index.html): the box is fixed and full-bleed, so leaving it up would
+   cover the landing page's clicks — and `game.destroy()` is deferred a frame, so it can outlive the match. */
 
 /* The arena is a drag surface: a pull-back gesture must not scroll or rubber-band the page under it. */
 #app canvas {
@@ -727,8 +751,6 @@ body {
   text-transform: uppercase;
 }
 
-/* ---- Match end ---------------------------------------------------------- */
-
 /* ---- Ougi banner --------------------------------------------------------- */
 
 /*
@@ -947,7 +969,7 @@ body {
     margin: 16px auto;
     padding: 16px;
   }
-  #lobby h1 {
+  #brand {
     font-size: 2.2rem;
     margin: 0;
   }

@@ -19,7 +19,7 @@
         <span id="brand-text" hidden>Ougi Arena</span>
       </h1>
       <!-- The logo already shouts the slogan, so this line sells the hook instead: zero friction to play. -->
-      <p id="tagline">Up to 8 ninjas, 2-minute rounds, last one standing. No download, no account.</p>
+      <p id="tagline">4-ninja free-for-all, 2-minute rounds, most KOs wins. No download, no account.</p>
       <p id="waking-note" hidden>Waking the dojo… the free server sleeps when idle, this takes up to a minute.</p>
       <div id="lobby-form">
         <section class="panel landing-col" id="landing-picks">
@@ -90,7 +90,7 @@
       <button id="pause-btn" class="btn-quiet" aria-label="Pause menu" aria-expanded="false">Menu</button>
       <span id="rotate-note">Turn your phone sideways for a bigger arena.</span>
     </div>
-    <div id="pause" hidden>
+    <div id="pause" role="dialog" aria-modal="true" aria-labelledby="pause-title" hidden>
       <div id="pause-panel" class="panel">
         <h2 id="pause-title">Paused</h2>
         <p id="pause-note">The arena keeps fighting — this menu only stops you.</p>
@@ -114,7 +114,7 @@
         <li><b>Space</b> to unleash your Ougi</li>
       </ul>
     </div>
-    <div id="match-end" hidden>
+    <div id="match-end" role="dialog" aria-modal="true" aria-labelledby="match-end-title" hidden>
       <div id="match-end-panel" class="panel">
         <h2 id="match-end-title">Match over</h2>
         <ul id="match-end-results"></ul>
@@ -127,7 +127,8 @@
       </div>
     </div>
     <div id="debug" hidden></div>
-    <div id="app"></div>
+    <!-- Shown only while a match is mounted: it's a fixed, full-bleed box, so it must not sit over the lobby. -->
+    <div id="app" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

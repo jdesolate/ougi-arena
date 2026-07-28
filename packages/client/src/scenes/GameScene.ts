@@ -881,8 +881,11 @@ export class GameScene extends Phaser.Scene {
     // height; the bottom bar is docked flush, so there its height is the whole story.
     root.setProperty("--hud-top-h", `${Math.ceil(this.hudTopEl.getBoundingClientRect().bottom)}px`);
     root.setProperty("--hud-bottom-h", `${Math.ceil(this.hudBottomEl.getBoundingClientRect().height)}px`);
-    // Phaser only polls its parent's size twice a second, which would leave the arena visibly wrong-sized for
-    // the first moments of a match; refreshing here re-fits it on the same frame the HUD appears.
+    // `refresh()` alone re-fits against the parent size Phaser has *cached*, which is still the full viewport
+    // the moment the HUD appears — so the parent has to be re-measured first. Phaser otherwise only re-measures
+    // in its own step loop, which leaves the arena wrong-sized until then, and never at all in a tab whose
+    // rAF is throttled. Together these re-fit on the same frame the insets change.
+    this.scale.getParentBounds();
     this.scale.refresh();
   }
 
